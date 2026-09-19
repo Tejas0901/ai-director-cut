@@ -87,14 +87,18 @@ def _estimate_seconds(text: str) -> float:
 # --------------------------------------------------------------------------
 
 
-# Microsoft's endpoint intermittently closes the socket having sent no audio,
-# raising NoAudioReceived for text that succeeds on the very next attempt.
-# Measured here at roughly one call in twelve, with no two failures in a row.
-# A reel narrates twice, so single-shot calls lose the voiceover on about one
-# render in six - which is a lot of silent demos for a fault that clears if
-# you simply ask again.
-EDGE_MAX_ATTEMPTS = 3
-EDGE_RETRY_DELAY = 0.75
+# Microsoft's endpoint intermittently accepts the socket and then closes it
+# having sent no audio at all - no error, just zero frames. Measured at
+# roughly one call in twelve overall, but they are not independent: they
+# arrive in bursts of one or two, separated by long clean runs.
+#
+# That clustering is what the backoff has to beat. Text length, voice,
+# content and idle time were each measured and ruled out, so there is nothing
+# to avoid - only a window to outlast. Three attempts 0.75s apart all landed
+# inside the same burst, which is why a reel could come back with a silent
+# intro and a perfectly good outro recorded seconds later.
+EDGE_MAX_ATTEMPTS = 5
+EDGE_RETRY_DELAY = 1.0
 
 
 def _edge_once(text: str, out_path: Path) -> None:

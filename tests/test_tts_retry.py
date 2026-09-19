@@ -1,9 +1,13 @@
 """edge-tts intermittently returns no audio, so narration retries.
 
-Microsoft's endpoint closes the socket having sent nothing for text that
-works on the next attempt - measured at roughly one call in twelve, never
-twice running. A reel narrates twice (intro and outro), so without retries
-about one render in six comes out silent for a fault that clears by itself.
+Microsoft's endpoint accepts the socket and then closes it having sent zero
+audio frames - no error, nothing to react to. Roughly one call in twelve, and
+the failures are NOT independent: they arrive in bursts of one or two,
+separated by long clean runs.
+
+Length, voice, content and idle time were each measured against it and ruled
+out, so there is no input to avoid - only a window to outlast. That is why
+the budget is five attempts spanning ~15s rather than three inside 2.25s.
 """
 
 from __future__ import annotations
@@ -56,13 +60,14 @@ def test_a_single_flake_is_retried_into_a_success(monkeypatch, tmp_path):
     assert result.detail is None
 
 
-def test_two_flakes_in_a_row_still_recover(monkeypatch, tmp_path):
-    endpoint = FlakyEndpoint(failures=2)
+def test_a_burst_of_consecutive_failures_is_ridden_out(monkeypatch, tmp_path):
+    """Two in a row was the longest burst measured; leave headroom past it."""
+    endpoint = FlakyEndpoint(failures=3)
     monkeypatch.setattr(tts, "_edge_once", endpoint)
 
     result = tts.synthesize("some words", tmp_path / "intro.mp3", provider="edge")
 
-    assert endpoint.calls == tts.EDGE_MAX_ATTEMPTS
+    assert endpoint.calls == 4, "three failures then the fourth call lands"
     assert result.spoken is True
 
 
@@ -133,3 +138,39 @@ def test_piper_is_not_retried(monkeypatch, tmp_path, silent_ffmpeg):
 
     assert len(calls) == 1, "retrying a deterministic failure just adds delay"
     assert result.spoken is False
+
+
+# --------------------------------------------------------------------------
+# burst tolerance
+#
+# The failures are not independent: they arrive in bursts of one or two calls
+# separated by long clean runs. Length, voice, content and idle time were each
+# measured and ruled out, so there is nothing to avoid - only a window to
+# outlast. Three attempts 0.75s apart all fell inside the same burst.
+# --------------------------------------------------------------------------
+
+
+def test_the_retries_span_long_enough_to_outlast_a_burst(monkeypatch, tmp_path):
+    slept: list[float] = []
+    monkeypatch.setattr(tts.time, "sleep", slept.append)
+    monkeypatch.setattr(tts, "_edge_once", FlakyEndpoint(failures=99))
+    monkeypatch.setattr(tts, "run", lambda args, **kw: __import__("pathlib")
+                        .Path(args[-1]).write_bytes(b"\x00" * 64))
+
+    tts.synthesize("some words", tmp_path / "intro.mp3", provider="edge")
+
+    # The old budget was 2.25s, which a burst outlived.
+    assert sum(slept) >= 10.0, f"attempts span only {sum(slept):.1f}s"
+
+
+def test_backoff_grows_rather_than_hammering(monkeypatch, tmp_path):
+    slept: list[float] = []
+    monkeypatch.setattr(tts.time, "sleep", slept.append)
+    monkeypatch.setattr(tts, "_edge_once", FlakyEndpoint(failures=99))
+    monkeypatch.setattr(tts, "run", lambda args, **kw: __import__("pathlib")
+                        .Path(args[-1]).write_bytes(b"\x00" * 64))
+
+    tts.synthesize("some words", tmp_path / "intro.mp3", provider="edge")
+
+    assert slept == sorted(slept)
+    assert len(slept) == tts.EDGE_MAX_ATTEMPTS - 1

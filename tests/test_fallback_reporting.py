@@ -314,3 +314,84 @@ def test_a_clean_render_carries_no_warnings(monkeypatch, tmp_path):
 
     assert result.narration_ok is True
     assert result.warnings == ()
+
+
+# --------------------------------------------------------------------------
+# one line failing while the other works
+#
+# The signature of a burst rather than a broken setup. The line that
+# succeeded is proof the endpoint is up, so the failed one is worth asking
+# again - from outside the burst that just swallowed it.
+# --------------------------------------------------------------------------
+
+
+def narration_stub(monkeypatch, tmp_path, script):
+    """Drive render() with a scripted sequence of narration outcomes."""
+    monkeypatch.setattr(render, "cut_reel", lambda *a, **k: tmp_path / "cut.mp4")
+    monkeypatch.setattr(render, "mix_audio", lambda *a, **k: tmp_path / "final.mp4")
+    monkeypatch.setattr(render, "music_for", lambda mood: None)
+
+    calls: list[str] = []
+
+    def fake(text, out, **kw):
+        calls.append(text)
+        spoken = script.pop(0) if script else True
+        return tts.Narration(out, spoken=spoken,
+                             detail=None if spoken else "edge: no audio after 5 attempts")
+
+    monkeypatch.setattr(render, "synthesize", fake)
+    return calls
+
+
+def media_for_render() -> MediaInfo:
+    return MediaInfo(path="in.mp4", duration=10.0, width=1280, height=720,
+                     fps=30.0, has_audio=True)
+
+
+def test_a_failed_intro_is_retried_when_the_outro_worked(monkeypatch, tmp_path):
+    calls = narration_stub(monkeypatch, tmp_path, [False, True, True])
+
+    result = render.render(one_clip_plan(), media_for_render(), "job")
+
+    assert calls == ["hello", "bye", "hello"], "the intro should be asked again"
+    assert result.narration_ok is True
+    assert result.warnings == ()
+
+
+def test_a_failed_outro_is_retried_when_the_intro_worked(monkeypatch, tmp_path):
+    calls = narration_stub(monkeypatch, tmp_path, [True, False, True])
+
+    result = render.render(one_clip_plan(), media_for_render(), "job")
+
+    assert calls == ["hello", "bye", "bye"]
+    assert result.narration_ok is True
+
+
+def test_both_failing_is_not_retried(monkeypatch, tmp_path):
+    """Both down means the endpoint is down; a third call proves nothing."""
+    calls = narration_stub(monkeypatch, tmp_path, [False, False])
+
+    result = render.render(one_clip_plan(), media_for_render(), "job")
+
+    assert len(calls) == 2
+    assert result.narration_ok is False
+    assert len(result.warnings) == 1
+
+
+def test_a_retry_that_fails_again_is_reported_honestly(monkeypatch, tmp_path):
+    calls = narration_stub(monkeypatch, tmp_path, [False, True, False])
+
+    result = render.render(one_clip_plan(), media_for_render(), "job")
+
+    assert len(calls) == 3
+    assert result.narration_ok is False
+    assert "silence" in result.warnings[0]
+
+
+def test_nothing_is_retried_when_both_lines_worked(monkeypatch, tmp_path):
+    calls = narration_stub(monkeypatch, tmp_path, [True, True])
+
+    result = render.render(one_clip_plan(), media_for_render(), "job")
+
+    assert len(calls) == 2, "no retry cost on the happy path"
+    assert result.narration_ok is True

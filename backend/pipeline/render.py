@@ -65,6 +65,18 @@ def render(plan: EditPlan, media: MediaInfo, job_id: str,
     intro = synthesize(plan.intro_narration, work_dir / "intro.mp3")
     outro = synthesize(plan.outro_summary, work_dir / "outro.mp3")
 
+    # One line failing while the other succeeds is the signature of a burst of
+    # dropped calls rather than a broken setup - and the line that worked is
+    # proof the endpoint is up. Asking again now, from outside the burst, is
+    # worth far more than another retry was inside it.
+    if intro.spoken != outro.spoken:
+        if not intro.spoken:
+            print("[render] retrying the intro; the outro proves narration works")
+            intro = synthesize(plan.intro_narration, work_dir / "intro.mp3")
+        else:
+            print("[render] retrying the outro; the intro proves narration works")
+            outro = synthesize(plan.outro_summary, work_dir / "outro.mp3")
+
     warnings: list[str] = []
     narration_ok = intro.spoken and outro.spoken
     if not narration_ok:
