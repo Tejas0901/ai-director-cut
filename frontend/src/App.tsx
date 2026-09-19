@@ -21,6 +21,10 @@ type Phase = "idle" | "working" | "done" | "error";
 
 export default function App() {
   const [health, setHealth] = useState<Health | null>(null);
+  // "checking" is distinct from "down" on purpose. Treating a health check
+  // that has not answered yet as a failure made the unreachable banner flash
+  // on every page load, before the request had even come back.
+  const [backend, setBackend] = useState<"checking" | "up" | "down">("checking");
   const [phase, setPhase] = useState<Phase>("idle");
   const [stage, setStage] = useState("queued");
   const [label, setLabel] = useState("");
@@ -42,10 +46,35 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    getHealth().then(setHealth).catch(() => setHealth(null));
-    refreshLibrary();
-    return () => teardown.current?.();
+    let cancelled = false;
+    let timer: number | undefined;
+
+    const check = () => {
+      getHealth()
+        .then((info) => {
+          if (cancelled) return;
+          setHealth(info);
+          setBackend("up");
+          refreshLibrary(); // only worth asking once we know it answers
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setBackend("down");
+          // Keep trying. Opening the page before the backend has finished
+          // starting is the normal case, so the banner should clear itself
+          // rather than demand a manual refresh.
+          timer = window.setTimeout(check, 3000);
+        });
+    };
+
+    check();
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
   }, [refreshLibrary]);
+
+  useEffect(() => () => teardown.current?.(), []);
 
   // Survive a page refresh mid-render: the job id lives in the URL hash, and
   // the SSE stream replays current state the moment we resubscribe.
@@ -161,9 +190,10 @@ export default function App() {
         </div>
       </header>
 
-      {!health && (
+      {backend === "down" && (
         <div className="banner warn">
-          Backend unreachable. Start it with <code>uv run uvicorn backend.main:app --reload</code>
+          Backend unreachable &mdash; retrying. Start it with{" "}
+          <code>uv run uvicorn backend.main:app --reload</code>
         </div>
       )}
 
