@@ -9,6 +9,7 @@ data/jobs.db
 !data/**/.gitkeep
 node_modules/
 frontend/dist/
+frontend/tsconfig.tsbuildinfo
 assets/music/*.mp3
 fixtures/*.mp4
 fixtures/_work/
