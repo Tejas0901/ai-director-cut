@@ -8,14 +8,20 @@ cascade that ships inside OpenCV, so there is nothing to download.
 
 from __future__ import annotations
 
+import base64
 import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-from ..config import BUCKET_SECONDS, VISION_SAMPLE_FPS
-from ..schemas import VisualBucket
+from ..config import (
+    BUCKET_SECONDS,
+    DIRECTOR_FRAME_WIDTH,
+    DIRECTOR_FRAMES,
+    VISION_SAMPLE_FPS,
+)
+from ..schemas import Keyframe, VisualBucket
 
 SCENE_CUT_CORRELATION = 0.55  # below this, the frame content changed hard
 _FACE_CASCADE: cv2.CascadeClassifier | None = None
@@ -88,6 +94,56 @@ def analyze(video_path: str | Path, duration: float) -> list[VisualBucket]:
         capture.release()
 
     return _to_buckets(samples, duration)
+
+
+def keyframes(video_path: str | Path, duration: float,
+              count: int = DIRECTOR_FRAMES,
+              width: int = DIRECTOR_FRAME_WIDTH) -> list[Keyframe]:
+    """Evenly spaced stills for a Director that can actually look at them.
+
+    Even spacing rather than the high-energy peaks, deliberately. The peaks
+    are already what the clip picker selects on, and they are the least
+    representative part of a video - sampling the whole span is what catches
+    the setting, a title card or on-screen branding that the busy moments
+    never show.
+
+    Samples land at segment midpoints so the first frame is not the black
+    one every encoder starts on. Never raises: a Director with no pictures
+    still writes a plan, it just writes a vaguer one.
+    """
+    if count <= 0 or duration <= 0:
+        return []
+
+    capture = cv2.VideoCapture(str(video_path))
+    if not capture.isOpened():
+        print(f"[vision] could not open {video_path} for keyframes")
+        return []
+
+    frames: list[Keyframe] = []
+    try:
+        for i in range(count):
+            t = duration * (i + 0.5) / count
+            capture.set(cv2.CAP_PROP_POS_MSEC, t * 1000.0)
+            ok, frame = capture.read()
+            if not ok or frame is None:
+                continue
+
+            height = max(1, round(frame.shape[0] * width / frame.shape[1]))
+            small = cv2.resize(frame, (width, height), interpolation=cv2.INTER_AREA)
+            ok, buffer = cv2.imencode(".jpg", small, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
+            if not ok:
+                continue
+
+            frames.append(Keyframe(
+                t=round(t, 2),
+                jpeg_b64=base64.b64encode(buffer.tobytes()).decode("ascii"),
+            ))
+    except Exception as exc:  # noqa: BLE001 - pictures are an enhancement
+        print(f"[vision] keyframe extraction failed ({exc}); continuing without")
+    finally:
+        capture.release()
+
+    return frames
 
 
 def _to_buckets(samples: list[tuple[float, float, bool, int]], duration: float) -> list[VisualBucket]:

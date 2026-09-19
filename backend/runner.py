@@ -15,7 +15,7 @@ from pathlib import Path
 from . import cache, jobs
 from .config import OUTPUT_DIR, UPLOAD_DIR, is_stubbed
 from .pipeline import director, ingest, render, timeline, transcribe, vision
-from .schemas import EditPlan, MediaInfo, Timeline, Transcript, VisualBucket
+from .schemas import EditPlan, Keyframe, MediaInfo, Timeline, Transcript, VisualBucket
 
 
 async def run_job(job_id: str, video_path: str) -> None:
@@ -51,7 +51,7 @@ def _run_sync(job_id: str, video_path: str) -> None:
 
     # --- 4. timeline ------------------------------------------------------
     jobs.set_stage(job_id, "building_timeline")
-    tl = timeline.build(media, script, visual)
+    tl = timeline.build(media, script, visual, _keyframes(media))
 
     # --- 5. director ------------------------------------------------------
     jobs.set_stage(job_id, "directing")
@@ -122,6 +122,18 @@ def _vision(media: MediaInfo, key: str) -> list[VisualBucket]:
     result = vision.analyze(media.path, media.duration)
     cache.store_list(key, "visual", list(result))
     return result
+
+
+def _keyframes(media: MediaInfo) -> list[Keyframe]:
+    """Stills for the Director to look at.
+
+    Not cached: decoding eight frames costs well under a second, and caching
+    them would put megabytes of base64 next to every video on disk for no
+    meaningful saving.
+    """
+    if is_stubbed("analyzing_video") or is_stubbed("directing"):
+        return []
+    return vision.keyframes(media.path, media.duration)
 
 
 def _direct(tl: Timeline, key: str) -> EditPlan:

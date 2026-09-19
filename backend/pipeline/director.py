@@ -23,7 +23,7 @@ from ..config import (
     LLM_PROVIDER,
     TARGET_CLIPS,
 )
-from ..schemas import Clip, EditPlan, MusicMood, Timeline, sanitize_plan
+from ..schemas import Clip, EditPlan, Keyframe, MusicMood, Timeline, sanitize_plan
 from .timeline import render_markdown, top_moments
 
 SYSTEM_PROMPT = """\
@@ -32,6 +32,15 @@ You are a Hollywood film editor cutting a short highlight reel from raw footage.
 You receive a timeline of the source video. Each row is a moment, with the
 words spoken, how loud the audio is (0-1), how much the picture is moving
 (0-1), whether a scene cut happened, and how many faces are visible.
+
+WHAT THE NUMBERS MEAN. `loud` and `motion` are normalised against THIS video's
+own range, not an absolute scale. 1.00 means "the most movement in this
+video" - which in a chess match is a player reaching across the board, and in
+a car chase is a crash. They tell you WHERE the notable moments are. They tell
+you NOTHING about what kind of video this is. Never infer subject, genre, pace
+or energy from them: a quiet video still has a 1.00 in it somewhere.
+
+{vision_note}
 
 Pick the {target} most engaging moments and write narration for the reel.
 
@@ -51,10 +60,36 @@ Narration:
 - outro_summary: one sentence to close on, under 20 words.
 - Write words a person would say out loud. No emoji, no stage directions, no
   markdown, no "In this video we will".
+- Ground every word in what you can actually see or hear. The title and the
+  narration must describe THIS footage - its real setting, subject and pace.
+  Never reach for stock excitement ("high-octane", "thrill ride", "hold onto
+  your seats") unless the footage genuinely is that. A calm video deserves
+  calm narration; writing it up as an action movie is the worst failure here.
 
 For every clip, `reason` explains in one sentence why this moment earned its
 place. The viewer reads these, so make them sharp rather than mechanical.
 `overlay_title` is a punchy on-screen caption of at most four words.
+"""
+
+# Which of these the Director gets decides whether it can describe the footage
+# or merely locate the interesting parts of it. Getting this wrong is what
+# produced "high-octane thrill ride" over a chess match: given only numbers,
+# a model fills the vacuum with the most common shape of video.
+SEEING_NOTE = """\
+WHAT YOU CAN SEE. Attached are {frames} still frames sampled evenly across the
+video, each labelled with its timestamp. These are your only evidence of what
+this footage is actually of, so read them before you write anything: identify
+the setting, the activity, who is present, and any on-screen text, branding or
+scoreboard. The title, the narration and every clip caption must describe what
+is in those frames. If the frames show a chess match, do not write about speed.\
+"""
+
+BLIND_NOTE = """\
+WHAT YOU CANNOT SEE. You have no frames from this video - the transcript is
+your only evidence of subject matter. If it is thin or empty you genuinely do
+not know what the footage shows, so write narration that works without
+knowing: talk about moments, structure and rhythm rather than naming a
+subject, sport, place or genre. Inventing one is worse than staying general.\
 """
 
 USER_PROMPT = """\
@@ -114,8 +149,12 @@ def direct(timeline: Timeline, provider: str | None = None) -> EditPlan:
             # sanitize_plan is inside the try on purpose: a plan whose clips
             # all fall outside the video is as unusable as a 503, and should
             # degrade the same way rather than raise past here.
-            system, user = _build_prompts(timeline)
-            plan = _gemini(system, user) if provider == "gemini" else _groq(system, user)
+            # Only Gemini is multimodal here; the configured Groq model is
+            # text-only, so it is told plainly that it cannot see.
+            seeing = provider == "gemini"
+            system, user = _build_prompts(timeline, can_see=seeing)
+            plan = _gemini(system, user, timeline.keyframes) if seeing \
+                else _groq(system, user)
             return _stamp(sanitize_plan(plan, duration), "llm")
         except Exception as exc:
             reason = _short_reason(provider, exc)
@@ -149,8 +188,15 @@ def _short_reason(provider: str, exc: Exception) -> str:
     return f"{provider}: {text}"
 
 
-def _build_prompts(timeline: Timeline) -> tuple[str, str]:
-    system = SYSTEM_PROMPT.format(target=TARGET_CLIPS)
+def _build_prompts(timeline: Timeline, *, can_see: bool) -> tuple[str, str]:
+    """`can_see` is whether the frames will actually be sent, not whether we
+    have any - a text-only provider must be told it is blind even when the
+    timeline is carrying pictures."""
+    frames = len(timeline.keyframes)
+    system = SYSTEM_PROMPT.format(
+        target=TARGET_CLIPS,
+        vision_note=SEEING_NOTE.format(frames=frames) if can_see and frames else BLIND_NOTE,
+    )
     user = USER_PROMPT.format(
         duration=timeline.media.duration,
         transcript=timeline.transcript.full_text or "(no speech detected)",
@@ -215,16 +261,23 @@ def _post_json(url: str, headers: dict, payload: dict) -> dict:
     raise RuntimeError(f"all {MAX_ATTEMPTS} attempts failed - {last}")
 
 
-def _gemini(system: str, user: str) -> EditPlan:
+def _gemini(system: str, user: str, keyframes: list[Keyframe] | None = None) -> EditPlan:
     if not GEMINI_API_KEY:
         raise RuntimeError("LLM_PROVIDER=gemini but GEMINI_API_KEY is not set")
+
+    # Each frame is labelled with its own timestamp immediately before the
+    # image, so the model can tie what it sees to a row in the timeline.
+    parts: list[dict] = [{"text": user}]
+    for frame in keyframes or []:
+        parts.append({"text": f"Frame at {frame.t:.1f}s:"})
+        parts.append({"inline_data": {"mime_type": "image/jpeg", "data": frame.jpeg_b64}})
 
     payload = _post_json(
         f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
         {"x-goog-api-key": GEMINI_API_KEY, "Content-Type": "application/json"},
         {
             "systemInstruction": {"parts": [{"text": system}]},
-            "contents": [{"role": "user", "parts": [{"text": user}]}],
+            "contents": [{"role": "user", "parts": parts}],
             "generationConfig": {
                 "responseMimeType": "application/json",
                 "responseSchema": GEMINI_SCHEMA,
@@ -340,7 +393,7 @@ if __name__ == "__main__":
     from .ingest import ingest
     from .timeline import build
     from .transcribe import transcribe
-    from .vision import analyze
+    from .vision import analyze, keyframes as extract_keyframes
 
     target = sys.argv[1]
     key = file_key(target)
@@ -349,6 +402,9 @@ if __name__ == "__main__":
         media_info,
         transcribe(media_info.audio_path) if media_info.audio_path else Transcript(),
         analyze(target, media_info.duration),
+        extract_keyframes(target, media_info.duration),
     )
+    print(f"[director] showing the model {len(tl.keyframes)} frames")
     result = direct(tl)
+    # Dumping the frames would bury the plan under a megabyte of base64.
     print(result.model_dump_json(indent=2))

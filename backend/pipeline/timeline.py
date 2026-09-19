@@ -15,7 +15,14 @@ from pathlib import Path
 import numpy as np
 
 from ..config import BUCKET_SECONDS
-from ..schemas import MediaInfo, Timeline, TimelineBucket, Transcript, VisualBucket
+from ..schemas import (
+    Keyframe,
+    MediaInfo,
+    Timeline,
+    TimelineBucket,
+    Transcript,
+    VisualBucket,
+)
 
 # Floor for the loudness normaliser, as linear RMS. -30 dBFS sits well below
 # normally-recorded speech (-20 to -26 dBFS) so real audio still normalises
@@ -24,7 +31,8 @@ from ..schemas import MediaInfo, Timeline, TimelineBucket, Transcript, VisualBuc
 MIN_LOUDNESS_CEILING = 0.0316  # 10 ** (-30 / 20)
 
 
-def build(media: MediaInfo, transcript: Transcript, visual: list[VisualBucket]) -> Timeline:
+def build(media: MediaInfo, transcript: Transcript, visual: list[VisualBucket],
+          keyframes: list[Keyframe] | None = None) -> Timeline:
     count = max(1, int(np.ceil(media.duration / BUCKET_SECONDS)))
     rms = _audio_rms(media.audio_path, count) if media.audio_path else [0.0] * count
     by_time = {round(v.t, 3): v for v in visual}
@@ -43,7 +51,7 @@ def build(media: MediaInfo, transcript: Transcript, visual: list[VisualBucket]) 
         ))
 
     return Timeline(media=media, transcript=transcript, buckets=buckets,
-                    bucket_seconds=BUCKET_SECONDS)
+                    bucket_seconds=BUCKET_SECONDS, keyframes=keyframes or [])
 
 
 def _speech_at(transcript: Transcript, start: float, end: float) -> str:

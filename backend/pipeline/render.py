@@ -329,7 +329,7 @@ if __name__ == "__main__":
     from .ingest import ingest
     from .timeline import build
     from .transcribe import transcribe
-    from .vision import analyze
+    from .vision import analyze, keyframes as extract_keyframes
 
     target = sys.argv[1]
     cut_only = "--cut-only" in sys.argv
@@ -340,6 +340,7 @@ if __name__ == "__main__":
         media_info,
         transcribe(media_info.audio_path) if media_info.audio_path else Transcript(),
         analyze(target, media_info.duration),
+        extract_keyframes(target, media_info.duration),
     )
     edit_plan = direct(tl)
     print(edit_plan.model_dump_json(indent=2))

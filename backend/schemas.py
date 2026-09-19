@@ -72,6 +72,18 @@ class VisualBucket(BaseModel):
     faces: int = 0
 
 
+class Keyframe(BaseModel):
+    """One still from the source, ready to hand to a multimodal Director.
+
+    Base64 rather than a path on purpose: the Director is not allowed to open
+    a file or run a decoder, so a frame reaches it the same way every other
+    fact does - as a field on a model.
+    """
+
+    t: float
+    jpeg_b64: str
+
+
 # --------------------------------------------------------------------------
 # Stage 4 output: the unified timeline handed to the Director
 # --------------------------------------------------------------------------
@@ -103,6 +115,11 @@ class Timeline(BaseModel):
     transcript: Transcript
     buckets: list[TimelineBucket] = Field(default_factory=list)
     bucket_seconds: float = 0.5
+
+    # Stills spanning the video. The buckets say where something happens; only
+    # these say what it is. Empty is normal - a text-only provider, frames
+    # switched off, or a decode that failed - and the Director copes.
+    keyframes: list[Keyframe] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------

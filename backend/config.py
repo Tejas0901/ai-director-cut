@@ -65,6 +65,12 @@ BUCKET_SECONDS = float(_env("BUCKET_SECONDS", "0.5"))
 VISION_SAMPLE_FPS = float(_env("VISION_SAMPLE_FPS", "4"))
 TARGET_CLIPS = int(_env("TARGET_CLIPS", "4"))
 
+# Stills handed to a multimodal Director so it can see what the footage is of.
+# The loudness and motion columns say where the interesting moments are; only
+# these say what the video is about. Zero disables them entirely.
+DIRECTOR_FRAMES = int(_env("DIRECTOR_FRAMES", "8"))
+DIRECTOR_FRAME_WIDTH = int(_env("DIRECTOR_FRAME_WIDTH", "512"))
+
 RENDER_WIDTH = int(_env("RENDER_WIDTH", "1280"))
 RENDER_HEIGHT = int(_env("RENDER_HEIGHT", "720"))
 RENDER_FPS = int(_env("RENDER_FPS", "30"))

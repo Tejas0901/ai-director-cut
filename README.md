@@ -50,7 +50,7 @@ upload ─→ ingest ─→ transcribe ─→ vision ─→ timeline ─→ dire
 |---|---|---|
 | Ingest | `pipeline/ingest.py` | Probes the file, extracts 16 kHz mono WAV |
 | Transcribe | `pipeline/transcribe.py` | Timestamped transcript (faster-whisper or Groq) |
-| Vision | `pipeline/vision.py` | Frame-diff motion, histogram scene cuts, face counts |
+| Vision | `pipeline/vision.py` | Frame-diff motion, histogram scene cuts, face counts, keyframes |
 | Timeline | `pipeline/timeline.py` | Fuses speech + loudness + motion into one table |
 | Director | `pipeline/director.py` | LLM picks the clips and writes the narration |
 | Narrate | `pipeline/tts.py` | Voiceover audio (edge-tts or Piper) |
@@ -68,6 +68,24 @@ Each row is half a second of video. This table *is* the prompt:
 | time | speech                        | loud | motion | cut | faces |
 | 12.5 | and then it completely explod | 0.81 | 0.94   | Y   | 2     |
 ```
+
+### What the Director can see
+
+The timeline alone says *where* the notable moments are. It says nothing about
+*what* the video is of — and a model handed only numbers will fill that vacuum with
+the most common shape of video. A real example: a 97-second chess match with four words
+of speech came back titled *"High Octane Highlights"* with narration about a "high-speed
+thrill ride", because the biggest movement in a static video still scores `motion: 1.00`.
+
+So the Director is also shown `DIRECTOR_FRAMES` stills sampled evenly across the video
+(Gemini only — the Groq model is text-only and the prompt tells it so). Same footage,
+with frames: *"Carlsen vs Vidit Blitz Showdown"*. Sampling is evenly spaced rather than
+at the energy peaks on purpose — the peaks are what the clip picker already selects, and
+they are the least representative frames in the video; it is the even spread that catches
+the setting and the on-screen branding.
+
+The prompt also states outright that `loud` and `motion` are normalised per-video, so
+`1.00` is not read as "a car chase".
 
 ### The Director's output
 
