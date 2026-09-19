@@ -202,3 +202,49 @@ def test_a_director_with_no_frames_sends_no_images(captured_request):
 
     parts = captured_request["contents"][0]["parts"]
     assert not [p for p in parts if "inline_data" in p]
+
+
+# --------------------------------------------------------------------------
+# hallucination guardrails
+#
+# Written against two real failures. A Bluey episode - animated dogs on a
+# squash court - came back as "an intense family squash match" closing on
+# "in the end, teamwork proves that little sisters can triumph", asserting
+# both a medium it never checked and an outcome it could not see. And a
+# chess clip had two players named from their faces alone.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("phrase", [
+    "Never state how something turned out",
+    "no declaring a winner",
+    "Never invent names, ages, relationships, roles or motives",
+    "Never identify a real person from their face",
+    "Say what kind of footage this is when it is not live action",
+])
+def test_the_guardrails_are_in_the_prompt(phrase):
+    system, _ = director._build_prompts(make_timeline(fake_frames(8)), can_see=True)
+
+    assert phrase in flat(system)
+
+
+def test_the_guardrails_apply_to_a_blind_director_too():
+    """A text-only model invents outcomes from a transcript just as happily."""
+    system, _ = director._build_prompts(make_timeline(), can_see=False)
+
+    assert "Never state how something turned out" in flat(system)
+    assert "Never invent names, ages, relationships" in flat(system)
+
+
+def test_the_seeing_note_warns_that_frames_are_sparse():
+    """The frames say what the video is, not what happened between them."""
+    system, _ = director._build_prompts(make_timeline(fake_frames(8)), can_see=True)
+
+    assert "8 moments out of thousands" in flat(system)
+    assert "do not tell you the story between them" in flat(system)
+
+
+def test_the_seeing_note_asks_for_the_medium():
+    system, _ = director._build_prompts(make_timeline(fake_frames(4)), can_see=True)
+
+    assert "identify the medium" in flat(system)

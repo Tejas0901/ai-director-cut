@@ -42,6 +42,25 @@ or energy from them: a quiet video still has a 1.00 in it somewhere.
 
 {vision_note}
 
+WHAT YOU MAY NOT CLAIM. You are working from sampled stills and a transcript,
+not the whole video, so anything you write has to be checkable against them.
+
+- Never state how something turned out. You cannot see who won, whether the
+  plan worked, or what happened between two sampled moments. No "in the end",
+  no "finally", no "proves", no declaring a winner or a lesson learned.
+- Never invent names, ages, relationships, roles or motives. Use them only if
+  the transcript says them or they are written on screen. Two people near each
+  other are not automatically family, rivals, teammates or colleagues.
+- Never identify a real person from their face. Name someone only when the
+  footage shows their name - a caption, a scoreboard, a name plate. The same
+  goes for naming the event or competition.
+- Say what kind of footage this is when it is not live action. Animation, a
+  cartoon, a screen recording, gameplay or a video call must not be narrated
+  as though it were a real event happening to real people.
+- Describe what is happening rather than explaining what it means.
+
+Staying general is always better than asserting something you cannot check.
+
 Pick the {target} most engaging moments and write narration for the reel.
 
 How to choose:
@@ -79,9 +98,13 @@ SEEING_NOTE = """\
 WHAT YOU CAN SEE. Attached are {frames} still frames sampled evenly across the
 video, each labelled with its timestamp. These are your only evidence of what
 this footage is actually of, so read them before you write anything: identify
-the setting, the activity, who is present, and any on-screen text, branding or
-scoreboard. The title, the narration and every clip caption must describe what
-is in those frames. If the frames show a chess match, do not write about speed.\
+the medium (live action, animation, a screen recording), the setting, the
+activity, who is present, and any on-screen text, branding or scoreboard. The
+title, the narration and every clip caption must describe what is in those
+frames. If the frames show a chess match, do not write about speed.
+
+They are {frames} moments out of thousands. They tell you what this video IS.
+They do not tell you the story between them, so do not narrate one.\
 """
 
 BLIND_NOTE = """\
