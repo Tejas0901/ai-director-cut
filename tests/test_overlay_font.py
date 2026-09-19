@@ -121,13 +121,24 @@ def fake_media() -> MediaInfo:
                      fps=30.0, has_audio=True)
 
 
+def filter_graph(args: list[str]) -> str:
+    """The -filter_complex value, which is the only place drawtext can appear.
+
+    Matching against the whole argv looks equivalent and is not: pytest builds
+    `tmp_path` from the test's own name, so a test named ...drawtext... puts
+    that word in the output path and every command appears to contain a
+    drawtext filter.
+    """
+    return args[args.index("-filter_complex") + 1]
+
+
 @pytest.fixture
 def ffmpeg_calls(monkeypatch):
-    """Capture argv per ffmpeg invocation instead of encoding anything."""
+    """Capture the filter graph per ffmpeg invocation instead of encoding."""
     calls: list[str] = []
 
     def fake_run(args, **kwargs):
-        calls.append(" ".join(args))
+        calls.append(filter_graph(args))
         return ""
 
     monkeypatch.setattr(render, "run", fake_run)
@@ -149,9 +160,9 @@ def test_a_failed_drawtext_is_re_cut_without_overlays(tmp_path, monkeypatch):
     calls: list[str] = []
 
     def fake_run(args, **kwargs):
-        joined = " ".join(args)
-        calls.append(joined)
-        if "drawtext" in joined:
+        graph = filter_graph(args)
+        calls.append(graph)
+        if "drawtext" in graph:
             raise FFmpegError("No such filter: 'drawtext'")
         return ""
 
@@ -171,7 +182,7 @@ def test_a_failure_with_no_overlay_to_drop_is_not_retried(tmp_path, monkeypatch)
     calls: list[str] = []
 
     def fake_run(args, **kwargs):
-        calls.append(" ".join(args))
+        calls.append(filter_graph(args))
         raise FFmpegError("Invalid data found when processing input")
 
     monkeypatch.setattr(render, "run", fake_run)

@@ -16,5 +16,17 @@ dependencies = [
     "edge-tts>=6.1",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
 [tool.uv]
 package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Integration tests shell out to ffmpeg and decode video; unit tests do not.
+markers = [
+    "integration: exercises the real pipeline end to end (needs ffmpeg)",
+]

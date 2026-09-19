@@ -14,6 +14,7 @@ be able to watch the intermediate file.
 from __future__ import annotations
 
 import sys
+import unicodedata
 from pathlib import Path
 from typing import NamedTuple
 
@@ -174,6 +175,26 @@ def _cut(plan: EditPlan, media: MediaInfo, out_path: Path,
 APOSTROPHE = "’"
 _DRAWTEXT_SAFE = " -?!,." + APOSTROPHE
 
+# Zero-width joiner and non-joiner. Not alphanumeric and invisible on their
+# own, but Devanagari, Bengali and Persian need them to form the right
+# conjuncts - dropping them rewrites the word.
+_ZERO_WIDTH = "‌‍"
+
+
+def _is_caption_safe(char: str) -> bool:
+    """Everything that can appear in a caption without ending the filter.
+
+    `isalnum` alone is not the right test for anything but Latin. A combining
+    mark is category M, not a letter, so it fails isalnum - and stripping it
+    does not drop the character, it corrupts the word around it: शतरंज loses
+    its anusvara and becomes शतरज. Marks cannot terminate a drawtext argument,
+    so they are safe to keep and wrong to remove.
+    """
+    return (char.isalnum()
+            or unicodedata.category(char).startswith("M")
+            or char in _DRAWTEXT_SAFE
+            or char in _ZERO_WIDTH)
+
 
 def _escape_drawtext(text: str) -> str:
     """drawtext treats ' : \\ % specially. Substitute or strip, never escape.
@@ -185,7 +206,7 @@ def _escape_drawtext(text: str) -> str:
     every caption into a visible typo. The rest goes.
     """
     text = (text or "").replace("'", APOSTROPHE).replace("`", APOSTROPHE)
-    cleaned = "".join(c for c in text if c.isalnum() or c in _DRAWTEXT_SAFE)
+    cleaned = "".join(c for c in text if _is_caption_safe(c))
     return cleaned.strip()[:48]
 
 

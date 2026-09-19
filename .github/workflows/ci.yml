@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # A new push supersedes whatever was still running for the same ref.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core
+          ffmpeg -version | head -1
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install Python and dependencies
+        run: |
+          uv python install 3.12
+          uv venv --python 3.12
+          uv pip install -r pyproject.toml
+          # pytest lives in the `dev` dependency group, which `uv pip install
+          # -r pyproject.toml` does not read.
+          uv pip install --group dev
+
+      # The fixtures are generated rather than committed, so the integration
+      # tests skip themselves without this step. Only `synthetic` is built:
+      # `talkie` needs edge-tts, and hanging CI on a third-party speech
+      # endpoint is a worse trade than losing one fixture's coverage.
+      - name: Generate test fixtures
+        run: uv run python -m fixtures.make_fixtures synthetic
+
+      - name: Run tests
+        run: uv run pytest -v
+
+  frontend:
+    name: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm --prefix frontend ci
+
+      - name: Build
+        run: npm --prefix frontend run build

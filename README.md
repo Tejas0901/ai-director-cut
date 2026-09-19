@@ -136,7 +136,24 @@ not once per run — this is the difference between a 30-second iteration loop a
 
 ## Testing
 
-Each stage runs standalone, no server needed:
+```bash
+uv run pytest                      # everything
+uv run pytest -m "not integration" # unit only, ~1s, no ffmpeg needed
+uv run pytest -m integration       # the end-to-end pipeline, ~50s
+```
+
+The integration tests drive the real runner, the real OpenCV pass and real
+FFmpeg with every provider on `mock`, then probe the output for a video stream,
+an audio stream and a non-zero duration — the README's "always produces a reel"
+promise, checked. They skip themselves if FFmpeg is absent or the fixtures have
+not been generated.
+
+CI runs the same two commands as [`.github/workflows/ci.yml`](.github/workflows/ci.yml),
+plus the frontend build.
+
+### Running a single stage
+
+Each stage also runs standalone, no server needed:
 
 ```bash
 uv run python -m backend.pipeline.ingest      fixtures/talkie.mp4
