@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import NamedTuple
 
@@ -86,7 +87,18 @@ def _estimate_seconds(text: str) -> float:
 # --------------------------------------------------------------------------
 
 
-def _edge(text: str, out_path: Path) -> Path:
+# Microsoft's endpoint intermittently closes the socket having sent no audio,
+# raising NoAudioReceived for text that succeeds on the very next attempt.
+# Measured here at roughly one call in twelve, with no two failures in a row.
+# A reel narrates twice, so single-shot calls lose the voiceover on about one
+# render in six - which is a lot of silent demos for a fault that clears if
+# you simply ask again.
+EDGE_MAX_ATTEMPTS = 3
+EDGE_RETRY_DELAY = 0.75
+
+
+def _edge_once(text: str, out_path: Path) -> None:
+    """One round trip to the endpoint. Raises unless real audio landed."""
     import edge_tts
 
     async def _run() -> None:
@@ -95,8 +107,27 @@ def _edge(text: str, out_path: Path) -> Path:
 
     asyncio.run(_run())
     if not out_path.exists() or out_path.stat().st_size == 0:
+        # A failed call can still leave a zero-byte file behind, which would
+        # otherwise reach the mixer as "successfully synthesised silence".
         raise RuntimeError("edge-tts produced an empty file")
-    return out_path
+
+
+def _edge(text: str, out_path: Path) -> Path:
+    last = "unknown error"
+    for attempt in range(EDGE_MAX_ATTEMPTS):
+        try:
+            _edge_once(text, out_path)
+            return out_path
+        except Exception as exc:  # noqa: BLE001 - one more try beats silence
+            last = f"{type(exc).__name__}: {exc}"
+
+        if attempt < EDGE_MAX_ATTEMPTS - 1:
+            delay = EDGE_RETRY_DELAY * (2 ** attempt)
+            print(f"[tts] edge attempt {attempt + 1}/{EDGE_MAX_ATTEMPTS} failed "
+                  f"({last}); retrying in {delay:.1f}s")
+            time.sleep(delay)
+
+    raise RuntimeError(f"no audio after {EDGE_MAX_ATTEMPTS} attempts - {last}")
 
 
 def _piper(text: str, out_path: Path) -> Path:
