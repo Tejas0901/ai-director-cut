@@ -96,6 +96,17 @@ export function posterUrl(id: string): string {
   return `/api/jobs/${id}/poster`;
 }
 
+/** The server sets Content-Disposition, so a plain link saves the file. */
+export function downloadUrl(id: string): string {
+  return `/api/jobs/${id}/download`;
+}
+
+/** Removes the reel, its source upload and its record. Not reversible. */
+export async function deleteJob(id: string): Promise<void> {
+  const res = await fetch(`/api/jobs/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("could not delete that reel");
+}
+
 /**
  * Subscribe to a job's live progress.
  * Returns a teardown function; call it on unmount so a refresh mid-render

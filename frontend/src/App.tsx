@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  deleteJob,
+  downloadUrl,
   formatAge,
   formatTime,
   getHealth,
@@ -108,6 +110,26 @@ export default function App() {
     }
   }, []);
 
+  const handleDelete = useCallback(
+    async (reel: JobSummary) => {
+      // Irreversible and it removes files from disk, so make the user say yes
+      // and name what is about to go.
+      const name = reel.title || reel.filename;
+      if (!window.confirm(`Delete "${name}"?\n\nThe reel and its source upload are removed from disk. This cannot be undone.`)) {
+        return;
+      }
+      try {
+        await deleteJob(reel.id);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "delete failed");
+        setPhase("error");
+        return;
+      }
+      refreshLibrary();
+    },
+    [refreshLibrary],
+  );
+
   function reset() {
     teardown.current?.();
     window.location.hash = "";
@@ -158,7 +180,7 @@ export default function App() {
       {phase === "idle" && (
         <>
           <Dropzone dragging={dragging} setDragging={setDragging} onFile={handleFile} />
-          <Library reels={library} onOpen={attach} />
+          <Library reels={library} onOpen={attach} onDelete={handleDelete} />
         </>
       )}
 
@@ -261,9 +283,11 @@ function Dropzone({
 function Library({
   reels,
   onOpen,
+  onDelete,
 }: {
   reels: JobSummary[];
   onOpen: (id: string) => void;
+  onDelete: (reel: JobSummary) => void;
 }) {
   // Nothing cut yet is the normal first-run state, not an error worth a card.
   if (reels.length === 0) return null;
@@ -279,7 +303,17 @@ function Library({
 
       <ul className="reel-grid">
         {reels.map((reel) => (
-          <li key={reel.id}>
+          // The delete control is a sibling of the card, never nested inside
+          // it - a button within a button is invalid and swallows the click.
+          <li key={reel.id} className="reel-cell">
+            <button
+              className="reel-delete"
+              title="Delete this reel"
+              aria-label={`Delete ${reel.title || reel.filename}`}
+              onClick={() => onDelete(reel)}
+            >
+              ×
+            </button>
             <button className="reel" onClick={() => onOpen(reel.id)}>
               <span className="reel-thumb">
                 <img
@@ -342,6 +376,11 @@ function Result({
         </div>
         <div className="result-actions">
           {plan && <span className="pill"><b>mood</b>{plan.music_mood}</span>}
+          {job.output_url && (
+            <a className="btn-secondary" href={downloadUrl(job.id)}>
+              Download reel
+            </a>
+          )}
           <button onClick={onReset}>New video</button>
         </div>
       </section>

@@ -46,6 +46,11 @@ def load(job_id: str) -> Job | None:
         return None
 
 
+def delete(job_id: str) -> None:
+    with _connect() as conn:
+        conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+
+
 def load_all() -> list[Job]:
     with _connect() as conn:
         rows = conn.execute("SELECT payload FROM jobs").fetchall()

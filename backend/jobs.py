@@ -43,6 +43,19 @@ def all_jobs() -> list[Job]:
     return sorted(_jobs.values(), key=lambda j: j.id)
 
 
+def remove(job_id: str) -> None:
+    """Forget a job entirely: memory, subscribers, and the database row.
+
+    Any stream still attached is closed first. Without that, a browser sitting
+    on the deleted job's SSE endpoint would wait forever for events that can
+    no longer arrive.
+    """
+    _close(job_id)
+    _jobs.pop(job_id, None)
+    _subscribers.pop(job_id, None)
+    db.delete(job_id)
+
+
 def _progress_for(stage: str) -> float:
     if stage == "done":
         return 1.0

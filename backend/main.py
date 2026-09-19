@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -108,6 +109,59 @@ def _sort_key(summary: JobSummary) -> float:
         return final.stat().st_mtime
     except OSError:
         return 0.0
+
+
+def _checked_id(job_id: str) -> str:
+    """Reject anything that is not a real job id before it becomes a path.
+
+    Job ids are hex from uuid4, and these routes turn one into a directory we
+    delete recursively. Existence checks alone would probably cover it, but
+    "probably" is the wrong standard for a recursive delete, so the shape is
+    enforced explicitly.
+    """
+    if not re.fullmatch(r"[0-9a-f]{6,32}", job_id):
+        raise HTTPException(400, "malformed job id")
+    return job_id
+
+
+@app.delete("/api/jobs/{job_id}")
+def delete_job(job_id: str) -> dict:
+    """Remove a reel and everything it produced. Not reversible."""
+    _checked_id(job_id)
+    if jobs.get(job_id) is None:
+        raise HTTPException(404, "no such job")
+
+    removed: list[str] = []
+
+    work_dir = OUTPUT_DIR / job_id
+    if work_dir.is_dir():
+        shutil.rmtree(work_dir, ignore_errors=True)
+        removed.append(work_dir.name)
+
+    # The upload keeps its original suffix, so match on the stem.
+    for upload in UPLOAD_DIR.glob(f"{job_id}.*"):
+        upload.unlink(missing_ok=True)
+        removed.append(upload.name)
+
+    jobs.remove(job_id)
+    return {"deleted": job_id, "files": removed}
+
+
+@app.get("/api/jobs/{job_id}/download")
+def download_job(job_id: str) -> FileResponse:
+    """The finished reel, named after the cut rather than 'final.mp4'."""
+    _checked_id(job_id)
+    job = jobs.get(job_id)
+    if job is None:
+        raise HTTPException(404, "no such job")
+
+    reel = OUTPUT_DIR / job_id / "final.mp4"
+    if not reel.exists():
+        raise HTTPException(404, "this job has no rendered reel")
+
+    title = job.plan.title if job.plan else ""
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or f"reel-{job_id}"
+    return FileResponse(reel, media_type="video/mp4", filename=f"{slug}.mp4")
 
 
 @app.get("/api/jobs/{job_id}/poster")
