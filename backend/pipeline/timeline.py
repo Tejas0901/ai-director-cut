@@ -102,7 +102,13 @@ def top_moments(timeline: Timeline, count: int, min_seconds: float = 4.0) -> lis
     """Heuristic clip picker - the fallback when the LLM is unavailable.
 
     Slides a window across the timeline, scores each position by mean energy,
-    then greedily takes the highest-scoring non-overlapping windows.
+    then greedily takes the highest-scoring windows that are spread out.
+
+    Spacing is the whole trick. Requiring only non-overlap lets the picker
+    return four windows that butt up against each other, which renders as one
+    continuous chunk with the ends trimmed - it does not look edited. So we
+    demand a real gap between picks and relax that demand only when the video
+    is genuinely too short to honour it.
     """
     buckets = timeline.buckets
     if not buckets:
@@ -116,9 +122,14 @@ def top_moments(timeline: Timeline, count: int, min_seconds: float = 4.0) -> lis
     scores.sort(reverse=True)
 
     chosen: list[int] = []
-    for _, index in scores:
-        if all(abs(index - existing) >= width for existing in chosen):
-            chosen.append(index)
+    for spacing in (3.0, 2.25, 1.5, 1.0):
+        gap = max(width, int(width * spacing))
+        chosen = []
+        for _, index in scores:
+            if all(abs(index - existing) >= gap for existing in chosen):
+                chosen.append(index)
+            if len(chosen) >= count:
+                break
         if len(chosen) >= count:
             break
 

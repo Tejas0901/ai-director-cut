@@ -12,6 +12,7 @@ import json
 import sys
 
 import httpx
+import numpy as np
 
 from ..config import (
     GEMINI_API_KEY,
@@ -184,19 +185,67 @@ def _mock(timeline: Timeline) -> EditPlan:
             start_time=start,
             end_time=end,
             overlay_title=titles[i % len(titles)],
-            reason="Selected by the energy heuristic: sustained peak in combined "
-                   "audio loudness and on-screen motion.",
+            reason=_heuristic_reason(timeline, start, end),
         )
         for i, (start, end) in enumerate(moments)
     ]
 
     return EditPlan(
         title="The Director's Cut",
-        music_mood=MusicMood.ENERGETIC,
+        music_mood=_heuristic_mood(timeline),
         intro_narration="Here's everything worth watching, and nothing that isn't.",
         outro_summary="That was the good part. You're welcome.",
         clips=clips,
     )
+
+
+def _heuristic_reason(timeline: Timeline, start: float, end: float) -> str:
+    """Name the signal that actually won this window.
+
+    The UI prints one reason per clip. Repeating a single generic sentence
+    four times reads as a bug, so say which measurement drove the pick - it is
+    the honest answer and it varies on its own.
+    """
+    window = [b for b in timeline.buckets if start <= b.t < end]
+    if not window:
+        return "Fallback selection: no timeline data covered this window."
+
+    loud = max(b.audio_rms for b in window)
+    motion = max(b.motion for b in window)
+    cuts = sum(1 for b in window if b.scene_cut)
+    faces = max(b.faces for b in window)
+    spoken = " ".join(b.speech for b in window if b.speech).strip()
+
+    if spoken and loud > 0.55:
+        quote = spoken[:60].rsplit(" ", 1)[0] if len(spoken) > 60 else spoken
+        return f'Loudest delivery in this stretch - the line lands on "{quote}".'
+    if cuts >= 2:
+        return f"{cuts} scene changes packed into {end - start:.0f} seconds - the busiest edit in the video."
+    if motion > 0.7 and loud > 0.5:
+        return "Motion and volume peak together here, which is usually where the good part is."
+    if motion > 0.7:
+        return f"Highest on-screen movement in the clip ({motion:.0%} of this video's peak)."
+    if faces:
+        return f"{faces} face{'s' if faces > 1 else ''} on camera with steady energy behind it."
+    if spoken:
+        return "Picked for the dialogue - a complete thought with clean silence either side."
+    return f"Sustained energy through this window ({max(loud, motion):.0%} of peak)."
+
+
+def _heuristic_mood(timeline: Timeline) -> MusicMood:
+    """Match the bed to the footage instead of always shouting ENERGETIC."""
+    if not timeline.buckets:
+        return MusicMood.ENERGETIC
+
+    motion = float(np.mean([b.motion for b in timeline.buckets]))
+    loud = float(np.mean([b.audio_rms for b in timeline.buckets]))
+    talky = sum(1 for b in timeline.buckets if b.speech) / len(timeline.buckets)
+
+    if motion > 0.45 and loud > 0.4:
+        return MusicMood.ENERGETIC
+    if talky > 0.6 and motion < 0.35:
+        return MusicMood.CHILL
+    return MusicMood.DRAMATIC
 
 
 if __name__ == "__main__":

@@ -11,4 +11,5 @@ node_modules/
 frontend/dist/
 assets/music/*.mp3
 fixtures/*.mp4
+fixtures/_work/
 !fixtures/synthetic.mp4
