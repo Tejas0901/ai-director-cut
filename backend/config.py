@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+from functools import lru_cache
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -70,13 +71,73 @@ RENDER_FPS = int(_env("RENDER_FPS", "30"))
 MUSIC_VOLUME = float(_env("MUSIC_VOLUME", "0.12"))
 DUCK_VOLUME = float(_env("DUCK_VOLUME", "0.15"))
 
-# Windows needs an escaped drive colon inside an ffmpeg filter string.
-FONT_FILE = _env("FONT_FILE", "C:/Windows/Fonts/arialbd.ttf")
+# --- overlay font ---------------------------------------------------------
+# Optional. Set it to force a specific face; leave it empty and we go looking
+# for a bold sans on the usual paths. Overlay titles are the only thing that
+# needs it, and the renderer drops them rather than failing if nothing turns
+# up - so a machine with no fonts at all still produces a reel.
+FONT_FILE = _env("FONT_FILE")
+
+# Bold faces, because a caption burned over footage needs the weight to stay
+# readable. Wrong-platform entries simply do not exist, so one flat list in
+# rough order of likelihood beats branching on sys.platform.
+FONT_CANDIDATES: tuple[str, ...] = (
+    # Windows
+    "C:/Windows/Fonts/arialbd.ttf",
+    "C:/Windows/Fonts/segoeuib.ttf",
+    "C:/Windows/Fonts/calibrib.ttf",
+    # macOS
+    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+    "/System/Library/Fonts/Supplemental/Verdana Bold.ttf",
+    "/Library/Fonts/Arial Bold.ttf",
+    "/System/Library/Fonts/HelveticaNeue.ttc",
+    # Linux - Debian/Ubuntu layout
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+    "/usr/share/fonts/truetype/msttcorefonts/Arial_Bold.ttf",
+    # Linux - Fedora/Arch layout
+    "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/liberation-sans/LiberationSans-Bold.ttf",
+    "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+)
 
 
-def ffmpeg_fontfile() -> str:
-    """Escape a Windows font path for use inside an ffmpeg filter graph."""
-    return FONT_FILE.replace("\\", "/").replace(":", r"\:")
+@lru_cache(maxsize=1)
+def resolve_font() -> Path | None:
+    """First usable bold font: FONT_FILE if set, else the known locations.
+
+    Returns None when nothing is found. Existence is all we check - a file
+    that exists but is corrupt fails inside ffmpeg, and the renderer's
+    retry-without-overlays path is what covers that.
+    """
+    if FONT_FILE:
+        chosen = Path(FONT_FILE)
+        if chosen.is_file():
+            return chosen
+        # Set deliberately and wrong is worth saying out loud; a typo here
+        # would otherwise look like "the captions just stopped appearing".
+        print(f"[config] FONT_FILE={FONT_FILE} does not exist; searching the usual paths")
+
+    for candidate in FONT_CANDIDATES:
+        path = Path(candidate)
+        if path.is_file():
+            return path
+
+    return None
+
+
+def ffmpeg_fontfile() -> str | None:
+    """The resolved font, escaped for use inside an ffmpeg filter graph.
+
+    None means no font was found, which is the renderer's cue to skip overlay
+    titles entirely. Windows needs the drive colon escaped.
+    """
+    font = resolve_font()
+    if font is None:
+        return None
+    return str(font).replace("\\", "/").replace(":", r"\:")
 
 
 def is_stubbed(stage: str) -> bool:

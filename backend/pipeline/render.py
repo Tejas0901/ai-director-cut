@@ -27,7 +27,7 @@ from ..config import (
     ffmpeg_fontfile,
 )
 from ..schemas import EditPlan, MediaInfo
-from .ffmpeg_util import probe, run
+from .ffmpeg_util import FFmpegError, probe, run
 from .tts import duration_of, synthesize
 
 TITLE_HOLD_SECONDS = 3.0
@@ -68,6 +68,32 @@ def render(plan: EditPlan, media: MediaInfo, job_id: str,
 def cut_reel(plan: EditPlan, media: MediaInfo, out_path: Path) -> Path:
     """Trim, normalise and concatenate the chosen clips.
 
+    Overlay titles are the one part of this that depends on the host having a
+    font. If none was found we never ask for them; if drawtext fails anyway -
+    a corrupt face, a build of ffmpeg without libfreetype - we cut the reel
+    again without them. A reel with no captions beats no reel.
+    """
+    fontfile = ffmpeg_fontfile()
+    wants_overlay = fontfile is not None and any(
+        _escape_drawtext(clip.overlay_title) for clip in plan.clips
+    )
+    if fontfile is None:
+        print("[render] no usable font found; skipping overlay titles "
+              "(set FONT_FILE in .env to add them)")
+
+    try:
+        return _cut(plan, media, out_path, fontfile)
+    except FFmpegError as exc:
+        if not wants_overlay:
+            raise
+        print(f"[render] drawtext failed ({exc}); re-cutting without overlay titles")
+        return _cut(plan, media, out_path, None)
+
+
+def _cut(plan: EditPlan, media: MediaInfo, out_path: Path,
+         fontfile: str | None) -> Path:
+    """One pass of the cut. `fontfile=None` builds the graph without drawtext.
+
     Normalising every segment to identical resolution / SAR / frame rate /
     sample rate before `concat` is what prevents the classic garbled-output
     bug when the source has variable frame rate or odd pixel aspect.
@@ -82,11 +108,11 @@ def cut_reel(plan: EditPlan, media: MediaInfo, out_path: Path) -> Path:
     labels: list[str] = []
 
     for i, clip in enumerate(plan.clips):
-        title = _escape_drawtext(clip.overlay_title)
+        title = _escape_drawtext(clip.overlay_title) if fontfile else ""
         drawtext = ""
         if title:
             drawtext = (
-                f",drawtext=fontfile='{ffmpeg_fontfile()}':text='{title}'"
+                f",drawtext=fontfile='{fontfile}':text='{title}'"
                 f":fontcolor=white:fontsize=46:box=1:boxcolor=black@0.45:boxborderw=20"
                 f":x=(w-text_w)/2:y=h-150"
                 f":enable='between(t,0.25,{TITLE_HOLD_SECONDS})'"

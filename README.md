@@ -90,6 +90,11 @@ Everything lives in `.env` (see `.env.example`). The three that matter:
 `mock` needs no network anywhere: the Director falls back to an energy heuristic and the
 narration becomes silence. **The app always produces a reel**, even with no keys and no internet.
 
+`FONT_FILE` is optional and only affects the on-screen clip titles. Left empty, the app looks
+for a bold sans on the usual Windows, macOS and Linux paths (Arial, DejaVu, Liberation); set it
+to force a particular face. If no font is found — or drawtext fails anyway — the reel is cut
+again without titles rather than failing.
+
 Free API keys: [aistudio.google.com/apikey](https://aistudio.google.com/apikey) ·
 [console.groq.com/keys](https://console.groq.com/keys)
 
@@ -189,12 +194,13 @@ A live Director writes a title about your actual footage.
 
 | Symptom | Cause |
 |---|---|
-| `error while attempting to bind on 127.0.0.1:8000` | A server is already running. Find it with `Get-NetTCPConnection -LocalPort 8000`. A stale one serves **old code and old `.env`** — restart rather than reuse. |
+| `error while attempting to bind on 127.0.0.1:8000` | A server is already running. Find it with `lsof -i :8000` (macOS/Linux), `Get-NetTCPConnection -LocalPort 8000` (PowerShell) or `netstat -ano \| findstr :8000` (cmd). A stale one serves **old code and old `.env`** — restart rather than reuse. |
 | Director output is bland, no error shown | The LLM call failed and fell back silently. Check the log for `[director] gemini failed`. |
 | `404 no longer available to new users` | `GEMINI_MODEL` is retired. Pick another; `GET /v1beta/models` lists what your key can call. |
 | `503 high demand` | The free tier is busy. Requests already retry three times with backoff; if it still fails the heuristic takes over and the render completes. |
 | Whisper returns 0 segments | Usually correct. Quiet or ambient-only audio is genuinely not speech — check the level before assuming a bug. |
 | Reel has no music | `assets/music/` is empty. Run `make_music`. A missing bed is skipped, never fatal. |
+| Reel has no on-screen titles | No bold font was found on this machine. Point `FONT_FILE` at one, or check the log for `[render] no usable font found`. Like music, titles are skipped rather than fatal. |
 | Uploads reappear after restart | Jobs persist in `data/jobs.db`. Delete it to start clean. |
 
 ### Recording the demo
