@@ -152,7 +152,7 @@ export default function App() {
     <div className="shell">
       <header className="masthead">
         <div>
-          <h1>AI Director&rsquo;s Cut</h1>
+          <h1>Final Cut AI</h1>
           <p className="tagline">Raw footage in. Highlight reel out. All on your laptop.</p>
         </div>
         {health && (
