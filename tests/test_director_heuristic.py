@@ -345,7 +345,16 @@ def test_the_narration_reports_the_real_numbers():
     plan = director._mock(tl)
 
     assert "2 minutes" in plan.intro_narration, plan.intro_narration
-    assert director._spell(len(plan.clips)) in plan.intro_narration
+    # The count opens the sentence, so it arrives capitalised.
+    assert director._spell(len(plan.clips)) in plan.intro_narration.lower()
+
+
+def test_the_intro_opens_with_a_capital():
+    """It is a spoken sentence and a headline; "four moments out of..." is neither."""
+    plan = director._mock(timeline_of(movey(240), duration=120.0))
+
+    assert plan.intro_narration[0].isupper(), plan.intro_narration
+    assert plan.outro_summary[0].isupper(), plan.outro_summary
 
 
 def test_a_video_of_a_different_length_reads_differently():
