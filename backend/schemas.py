@@ -136,6 +136,14 @@ class EditPlan(BaseModel):
     outro_summary: str
     clips: list[Clip] = Field(default_factory=list)
 
+    # Who actually chose these clips. Not part of the LLM's schema - the model
+    # never authors these, `director.direct` stamps them after the fact - but
+    # they travel with the plan because the UI has to be able to say which
+    # kind of edit the viewer is looking at. A fallback that looks identical
+    # to a real one is the whole problem this pair exists to solve.
+    source: Literal["llm", "heuristic"] = "llm"
+    fallback_reason: str | None = None
+
     @field_validator("clips")
     @classmethod
     def _at_least_one_clip(cls, v: list[Clip]) -> list[Clip]:
@@ -252,6 +260,12 @@ class Job(BaseModel):
     plan: EditPlan | None = None
     transcript: Transcript | None = None
     duration: float | None = None
+
+    # Degradations the reel survived. `error` means the job died; these mean
+    # it finished, but not the way it was configured to. Both default to the
+    # happy value so rows written before the fields existed still load.
+    narration_ok: bool = True
+    warnings: list[str] = Field(default_factory=list)
 
     # Unix timestamp. Optional because job ids are random hex and carry no
     # ordering, so rows written before this field existed have nothing to

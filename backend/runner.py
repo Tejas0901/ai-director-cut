@@ -62,9 +62,17 @@ def _run_sync(job_id: str, video_path: str) -> None:
     jobs.set_stage(job_id, "narrating",
                    detail=f'"{plan.title}" - {len(plan.clips)} clips selected')
     jobs.set_stage(job_id, "rendering")
-    output = _render(plan, media, job_id)
+    result = _render(plan, media, job_id)
 
-    job.output_url = _media_url(output)
+    job.output_url = _media_url(result.path)
+    job.narration_ok = result.narration_ok
+    # The Director's own fallback is deliberately not repeated here: the plan
+    # already carries `source` and `fallback_reason`, and the UI badges it
+    # from there. Duplicating it into `warnings` would show it twice.
+    job.warnings.extend(result.warnings)
+
+    # Mutations above ride to SQLite on this transition, which is the last
+    # write this job gets.
     jobs.set_stage(job_id, "done")
 
 
@@ -123,9 +131,13 @@ def _direct(tl: Timeline, key: str) -> EditPlan:
     return director.direct(tl, provider=provider)
 
 
-def _render(plan: EditPlan, media: MediaInfo, job_id: str) -> Path:
+def _render(plan: EditPlan, media: MediaInfo, job_id: str) -> render.RenderResult:
     if is_stubbed("rendering"):
         # Skeleton mode: hand back the original file so the UI has something
         # to play and the end-to-end path stays exercised.
-        return Path(media.path)
+        return render.RenderResult(
+            Path(media.path),
+            narration_ok=False,
+            warnings=("Rendering is stubbed (STUB_STAGES), so this is the original upload.",),
+        )
     return render.render(plan, media, job_id)

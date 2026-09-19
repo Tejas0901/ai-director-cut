@@ -99,10 +99,10 @@ Free API keys: [aistudio.google.com/apikey](https://aistudio.google.com/apikey) 
 [console.groq.com/keys](https://console.groq.com/keys)
 
 > **Models get retired.** Google returns `404 no longer available to new users` for older
-> Gemini models on freshly-issued keys, and because the Director catches every failure and
-> falls back, a dead model looks exactly like a working app producing dull cuts. If the
-> Director seems uncreative, check the server log for `[director] gemini failed` before
-> anything else. `GET /api/health` reports which providers are live.
+> Gemini models on freshly-issued keys. Every failure falls back to the heuristic, so the
+> render still completes — but the result page says so: the badge above the reel reads
+> **Heuristic fallback** with the provider's own error next to it, rather than passing a
+> dull cut off as the AI's taste. `GET /api/health` reports which providers are live.
 
 ### Development flags
 
@@ -186,16 +186,18 @@ ls assets/music                              # three mp3s, or there is no music 
 uv run python -m backend.pipeline.director fixtures/talkie.mp4
 ```
 
-That last command is the real check: if the plan comes back titled *The Director's Cut* with
-identical `reason` strings, the LLM is not being reached and you are watching the heuristic.
-A live Director writes a title about your actual footage.
+That last command is the real check. The plan it prints carries `"source"`: `"llm"` means the
+Director answered, `"heuristic"` means it did not and `"fallback_reason"` says why. The UI
+shows the same thing as a badge above the reel, so a fallback can no longer pass itself off
+as the AI having dull taste.
 
 ### When something breaks
 
 | Symptom | Cause |
 |---|---|
 | `error while attempting to bind on 127.0.0.1:8000` | A server is already running. Find it with `lsof -i :8000` (macOS/Linux), `Get-NetTCPConnection -LocalPort 8000` (PowerShell) or `netstat -ano \| findstr :8000` (cmd). A stale one serves **old code and old `.env`** — restart rather than reuse. |
-| Director output is bland, no error shown | The LLM call failed and fell back silently. Check the log for `[director] gemini failed`. |
+| Result page badges **Heuristic fallback** | The LLM was not reached. The badge carries the provider's error — a dead key, a retired model, no network. The reel is real, the clip choice is just not the AI's. |
+| Result page warns about narration | TTS fell back to silence. The strip above the players says which provider failed and why; `TTS_PROVIDER=mock` reports here too, since silence is then deliberate. |
 | `404 no longer available to new users` | `GEMINI_MODEL` is retired. Pick another; `GET /v1beta/models` lists what your key can call. |
 | `503 high demand` | The free tier is busy. Requests already retry three times with backoff; if it still fails the heuristic takes over and the render completes. |
 | Whisper returns 0 segments | Usually correct. Quiet or ambient-only audio is genuinely not speech — check the level before assuming a bug. |

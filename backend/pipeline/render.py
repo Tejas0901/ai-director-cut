@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 from ..config import (
     DUCK_VOLUME,
@@ -38,26 +39,46 @@ TITLE_HOLD_SECONDS = 3.0
 DUCK_FADE_SECONDS = 0.4
 
 
+class RenderResult(NamedTuple):
+    """The finished reel, plus anything the viewer should be told about it.
+
+    The render succeeding is not the same as the render coming out as
+    configured, and only this stage knows the difference.
+    """
+
+    path: Path
+    narration_ok: bool = True
+    warnings: tuple[str, ...] = ()
+
+
 def render(plan: EditPlan, media: MediaInfo, job_id: str,
-           *, with_audio_mix: bool = True) -> Path:
-    """Full render. Returns the path of the finished reel."""
+           *, with_audio_mix: bool = True) -> RenderResult:
+    """Full render. Returns the finished reel and how intact it is."""
     work_dir = OUTPUT_DIR / job_id
     work_dir.mkdir(parents=True, exist_ok=True)
 
     cut_path = cut_reel(plan, media, work_dir / "reel_cut.mp4")
     if not with_audio_mix:
-        return cut_path
+        return RenderResult(cut_path)
 
-    intro_path = synthesize(plan.intro_narration, work_dir / "intro.mp3")
-    outro_path = synthesize(plan.outro_summary, work_dir / "outro.mp3")
+    intro = synthesize(plan.intro_narration, work_dir / "intro.mp3")
+    outro = synthesize(plan.outro_summary, work_dir / "outro.mp3")
 
-    return mix_audio(
+    warnings: list[str] = []
+    narration_ok = intro.spoken and outro.spoken
+    if not narration_ok:
+        # Both halves usually fail for the same reason; report it once.
+        detail = intro.detail or outro.detail or "no detail available"
+        warnings.append(f"Narration fell back to silence ({detail}).")
+
+    final = mix_audio(
         cut_path,
-        intro_path,
-        outro_path,
+        intro.path,
+        outro.path,
         music_for(plan.music_mood.value),
         work_dir / "final.mp4",
     )
+    return RenderResult(final, narration_ok, tuple(warnings))
 
 
 # --------------------------------------------------------------------------
@@ -324,4 +345,6 @@ if __name__ == "__main__":
     print(edit_plan.model_dump_json(indent=2))
 
     result = render(edit_plan, media_info, "cli_test", with_audio_mix=not cut_only)
-    print(f"\nwrote {result}")
+    print(f"\nwrote {result.path}")
+    for warning in result.warnings:
+        print(f"WARNING: {warning}")

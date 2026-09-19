@@ -11,6 +11,7 @@ import {
   streamJob,
   uploadVideo,
   type Clip,
+  type EditPlan,
   type Health,
   type Job,
   type JobSummary,
@@ -562,6 +563,34 @@ function SourceTimeline({
   );
 }
 
+/**
+ * Who cut this reel. The heuristic and the LLM produce identical-looking
+ * output, so without this a silent fallback reads as "the AI is just dull".
+ * The reason can run to a sentence, hence the ellipsis and the full text on
+ * hover rather than a wrapped pill.
+ */
+function DirectorBadge({ plan }: { plan: EditPlan }) {
+  if (plan.source === "llm") {
+    return (
+      <span className="pill pill-ok">
+        <b>cut by</b>AI Director
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className="pill pill-fallback"
+      title={plan.fallback_reason ?? "The offline heuristic chose these clips."}
+    >
+      <b>cut by</b>
+      {plan.fallback_reason
+        ? `Heuristic fallback (${plan.fallback_reason})`
+        : "Heuristic"}
+    </span>
+  );
+}
+
 function Result({
   job,
   reelRef,
@@ -627,6 +656,7 @@ function Result({
           <h2>{plan?.title ?? "Your highlight reel"}</h2>
         </div>
         <div className="result-actions">
+          {plan && <DirectorBadge plan={plan} />}
           {plan && <span className="pill"><b>mood</b>{plan.music_mood}</span>}
           {job.output_url && (
             <a className="btn-secondary" href={downloadUrl(job.id)}>
@@ -636,6 +666,16 @@ function Result({
           <button onClick={onReset}>New video</button>
         </div>
       </section>
+
+      {job.warnings.length > 0 && (
+        <div className="banner warn result-warnings">
+          <ul>
+            {job.warnings.map((warning, i) => (
+              <li key={i}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {plan && job.duration ? (
         <SourceTimeline

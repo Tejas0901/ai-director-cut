@@ -98,20 +98,55 @@ GEMINI_SCHEMA = {
 
 
 def direct(timeline: Timeline, provider: str | None = None) -> EditPlan:
+    """Pick the clips, and say who picked them.
+
+    A dead key, a retired model or a rate limit must not kill the demo, so
+    every failure lands on the heuristic. But a fallback that is invisible is
+    its own bug - a dull cut looks exactly like a working app with dull
+    footage - so the plan carries how it was made and, when it degraded, why.
+    """
     provider = (provider or LLM_PROVIDER).lower()
+    duration = timeline.media.duration
+    reason: str | None = None
 
-    if provider == "mock":
-        plan = _mock(timeline)
-    else:
-        prompts = _build_prompts(timeline)
+    if provider != "mock":
         try:
-            plan = _gemini(*prompts) if provider == "gemini" else _groq(*prompts)
+            # sanitize_plan is inside the try on purpose: a plan whose clips
+            # all fall outside the video is as unusable as a 503, and should
+            # degrade the same way rather than raise past here.
+            system, user = _build_prompts(timeline)
+            plan = _gemini(system, user) if provider == "gemini" else _groq(system, user)
+            return _stamp(sanitize_plan(plan, duration), "llm")
         except Exception as exc:
-            # A dead API key or a rate limit must not kill the demo.
+            reason = _short_reason(provider, exc)
             print(f"[director] {provider} failed ({exc}); falling back to heuristic")
-            plan = _mock(timeline)
 
-    return sanitize_plan(plan, timeline.media.duration)
+    # provider="mock" is a deliberate choice rather than a degradation, so it
+    # reports the heuristic as its source with no reason attached.
+    return _stamp(sanitize_plan(_mock(timeline), duration), "heuristic", reason)
+
+
+def _stamp(plan: EditPlan, source: str, reason: str | None = None) -> EditPlan:
+    """Record provenance on a finished plan.
+
+    Set here rather than trusted from the response: under Groq's plain JSON
+    mode a model is free to invent a `source` field, and a hallucinated
+    "llm" on a heuristic cut would be worse than no badge at all.
+    """
+    return plan.model_copy(update={"source": source, "fallback_reason": reason})
+
+
+# The badge this ends up in has room for a sentence, not a stack trace, and
+# _post_json attaches up to 200 characters of response body to its message.
+MAX_REASON_CHARS = 160
+
+
+def _short_reason(provider: str, exc: Exception) -> str:
+    """One line a viewer can act on: which provider, and what it said."""
+    text = " ".join(str(exc).split()) or type(exc).__name__
+    if len(text) > MAX_REASON_CHARS:
+        text = text[:MAX_REASON_CHARS - 1].rstrip() + "…"
+    return f"{provider}: {text}"
 
 
 def _build_prompts(timeline: Timeline) -> tuple[str, str]:
@@ -133,6 +168,23 @@ RETRY_STATUS = {429, 500, 502, 503, 504}
 MAX_ATTEMPTS = 3
 
 
+def _describe(response) -> str:
+    """The sentence worth reading out of an error response, not the envelope.
+
+    Gemini and Groq both bury the real explanation in
+    {"error": {"message": ...}}. This message ends up on a badge in the UI, so
+    "API key not valid" is what the viewer needs - not 200 characters of JSON
+    with that phrase somewhere in the middle.
+    """
+    try:
+        message = response.json()["error"]["message"]
+        if isinstance(message, str) and message.strip():
+            return f"HTTP {response.status_code}: {message.strip()}"
+    except Exception:  # noqa: BLE001 - any shape but the expected one
+        pass
+    return f"HTTP {response.status_code}: {(response.text or '').strip()[:200]}"
+
+
 def _post_json(url: str, headers: dict, payload: dict) -> dict:
     """POST with backoff on transient failures.
 
@@ -148,7 +200,7 @@ def _post_json(url: str, headers: dict, payload: dict) -> dict:
             if response.status_code == 200:
                 return response.json()
 
-            last = f"HTTP {response.status_code}: {response.text[:200]}"
+            last = _describe(response)
             if response.status_code not in RETRY_STATUS:
                 raise RuntimeError(last)
         except httpx.RequestError as exc:  # connection reset, timeout, DNS

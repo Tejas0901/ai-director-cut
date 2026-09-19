@@ -14,6 +14,10 @@ export type EditPlan = {
   intro_narration: string;
   outro_summary: string;
   clips: Clip[];
+  /** Who chose the clips. "heuristic" means the LLM was not reached. */
+  source: "llm" | "heuristic";
+  /** Why the LLM was not reached. Null when nothing went wrong. */
+  fallback_reason: string | null;
 };
 
 export type TranscriptSegment = { start: number; end: number; text: string };
@@ -30,6 +34,10 @@ export type Job = {
   plan: EditPlan | null;
   transcript: { segments: TranscriptSegment[]; language: string } | null;
   duration: number | null;
+  /** False when the reel carries silence where narration should be. */
+  narration_ok: boolean;
+  /** Degradations the reel survived. Empty on a clean run. */
+  warnings: string[];
 };
 
 export type JobEvent = {

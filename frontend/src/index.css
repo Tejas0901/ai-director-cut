@@ -84,6 +84,20 @@ body {
   letter-spacing: 0.08em;
 }
 
+/* Provenance badge. The fallback reason is a sentence, so it is clamped
+   here and shown in full on hover rather than wrapping the header. */
+.pill-ok { border-color: #2b4a33; background: #16241a; color: #8fe0a6; }
+.pill-fallback {
+  border-color: #5c431c;
+  background: #3a2a12;
+  color: var(--warn);
+  max-width: 34ch;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pill-ok b, .pill-fallback b { color: inherit; opacity: 0.7; }
+
 /* --- cards ------------------------------------------------------------- */
 
 .card {
@@ -103,6 +117,12 @@ body {
 }
 
 .banner.warn { background: #3a2a12; border-color: #5c431c; color: var(--warn); }
+
+/* Degradations the reel survived. Lives between the header and the players
+   so it is read before the video, not after. */
+.result-warnings ul { margin: 0; padding-left: 18px; }
+.result-warnings li + li { margin-top: 6px; }
+.result-warnings li::marker { opacity: 0.6; }
 .banner.info { background: #12212e; border-color: #1d3448; color: #7fc4ff; }
 .banner code { background: #0006; padding: 2px 6px; border-radius: 5px; }
 
