@@ -235,6 +235,36 @@ def mix_audio(video_path: Path, intro_path: Path, outro_path: Path,
     return out_path
 
 
+def poster_for(job_id: str, *, at_seconds: float = 1.5) -> Path | None:
+    """Thumbnail for a finished reel, generated on first request and reused.
+
+    Doing this lazily rather than during the render means reels cut before the
+    library existed still get a thumbnail - and a job whose poster is never
+    looked at never pays for one. Grabbing the frame at 1.5s skips any fade-in
+    and lands inside the first clip's overlay title.
+    """
+    work_dir = OUTPUT_DIR / job_id
+    poster = work_dir / "poster.jpg"
+    if poster.exists() and poster.stat().st_size > 0:
+        return poster
+
+    source = work_dir / "final.mp4"
+    if not source.exists():
+        return None
+
+    try:
+        run([
+            "-y", "-ss", str(at_seconds), "-i", str(source),
+            "-frames:v", "1", "-vf", "scale=480:-2", "-q:v", "4",
+            str(poster),
+        ])
+    except Exception as exc:  # noqa: BLE001 - a missing thumbnail is cosmetic
+        print(f"[render] poster for {job_id} failed ({exc})")
+        return None
+
+    return poster if poster.exists() else None
+
+
 def music_for(mood: str) -> Path | None:
     """Pick the bed the Director asked for; silently skip if absent."""
     for ext in (".mp3", ".m4a", ".wav", ".ogg"):

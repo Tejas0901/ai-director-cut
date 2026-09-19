@@ -252,3 +252,39 @@ class Job(BaseModel):
     plan: EditPlan | None = None
     transcript: Transcript | None = None
     duration: float | None = None
+
+    # Unix timestamp. Optional because job ids are random hex and carry no
+    # ordering, so rows written before this field existed have nothing to
+    # recover it from - the library endpoint falls back to file mtime there.
+    created_at: float | None = None
+
+
+class JobSummary(BaseModel):
+    """One card in the library.
+
+    Deliberately not a Job: the full record carries the entire transcript and
+    edit plan, and sending fifty of those to render a grid of thumbnails would
+    be megabytes of JSON the page never reads.
+    """
+
+    id: str
+    filename: str
+    stage: str
+    title: str | None = None
+    output_url: str | None = None
+    clip_count: int = 0
+    duration: float | None = None
+    created_at: float | None = None
+
+    @classmethod
+    def of(cls, job: Job) -> JobSummary:
+        return cls(
+            id=job.id,
+            filename=job.filename,
+            stage=job.stage,
+            title=job.plan.title if job.plan else None,
+            output_url=job.output_url,
+            clip_count=len(job.plan.clips) if job.plan else 0,
+            duration=job.duration,
+            created_at=job.created_at,
+        )

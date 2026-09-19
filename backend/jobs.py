@@ -8,6 +8,7 @@ transitions over an asyncio queue, which `main.py` turns into an SSE stream.
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from collections.abc import AsyncIterator
 
@@ -20,7 +21,8 @@ _subscribers: dict[str, list[asyncio.Queue[JobEvent | None]]] = {}
 
 def create(filename: str, original_url: str) -> Job:
     job_id = uuid.uuid4().hex[:12]
-    job = Job(id=job_id, filename=filename, original_url=original_url)
+    job = Job(id=job_id, filename=filename, original_url=original_url,
+              created_at=time.time())
     _jobs[job_id] = job
     _subscribers[job_id] = []
     db.save(job)

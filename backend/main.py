@@ -14,10 +14,11 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, jobs, runner
+from .pipeline import render
 from .config import (
     LLM_PROVIDER,
     OUTPUT_DIR,
@@ -26,7 +27,7 @@ from .config import (
     TTS_PROVIDER,
     UPLOAD_DIR,
 )
-from .schemas import STAGE_LABELS, STAGE_ORDER
+from .schemas import STAGE_LABELS, STAGE_ORDER, JobSummary
 
 ALLOWED_SUFFIXES = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}
 
@@ -80,6 +81,45 @@ async def create_job(file: UploadFile) -> dict:
 
     asyncio.create_task(runner.run_job(job.id, str(stored)))
     return {"job_id": job.id, "original_url": job.original_url}
+
+
+@app.get("/api/jobs")
+def list_jobs(limit: int = 24) -> list[dict]:
+    """The library: every reel this machine has cut, newest first.
+
+    Reads through SQLite rather than the in-memory registry so the list
+    survives a restart - which is the entire point of having a library.
+    """
+    summaries = [JobSummary.of(job) for job in db.load_all()]
+    summaries.sort(key=_sort_key, reverse=True)
+    return [s.model_dump(mode="json") for s in summaries[:max(1, limit)]]
+
+
+def _sort_key(summary: JobSummary) -> float:
+    """Newest first, with a fallback for rows written before created_at.
+
+    Job ids are random hex, so they carry no ordering of their own. Older
+    rows have no timestamp at all; their rendered file does, so use that.
+    """
+    if summary.created_at is not None:
+        return summary.created_at
+    final = OUTPUT_DIR / summary.id / "final.mp4"
+    try:
+        return final.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+@app.get("/api/jobs/{job_id}/poster")
+def job_poster(job_id: str) -> FileResponse:
+    """Thumbnail for one reel. Generated on first request, cached after."""
+    if jobs.get(job_id) is None:
+        raise HTTPException(404, "no such job")
+
+    poster = render.poster_for(job_id)
+    if poster is None:
+        raise HTTPException(404, "no poster available")
+    return FileResponse(poster, media_type="image/jpeg")
 
 
 @app.get("/api/jobs/{job_id}")

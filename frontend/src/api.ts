@@ -41,6 +41,18 @@ export type JobEvent = {
 
 export type Stage = { key: string; label: string };
 
+/** One card in the library. Deliberately lighter than a full Job. */
+export type JobSummary = {
+  id: string;
+  filename: string;
+  stage: string;
+  title: string | null;
+  output_url: string | null;
+  clip_count: number;
+  duration: number | null;
+  created_at: number | null;
+};
+
 export type Health = {
   status: string;
   llm: string;
@@ -71,6 +83,17 @@ export async function getJob(id: string): Promise<Job> {
   const res = await fetch(`/api/jobs/${id}`);
   if (!res.ok) throw new Error("job not found");
   return res.json();
+}
+
+/** Every reel cut on this machine, newest first. */
+export async function listJobs(): Promise<JobSummary[]> {
+  const res = await fetch("/api/jobs");
+  if (!res.ok) throw new Error("could not load the library");
+  return res.json();
+}
+
+export function posterUrl(id: string): string {
+  return `/api/jobs/${id}/poster`;
 }
 
 /**
@@ -108,4 +131,26 @@ export function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+/**
+ * Relative age for a library card. Returns "" when the timestamp is missing —
+ * reels cut before created_at existed have no honest answer, and inventing
+ * one would be worse than showing nothing.
+ */
+export function formatAge(createdAt: number | null): string {
+  if (!createdAt) return "";
+  const seconds = Date.now() / 1000 - createdAt;
+  if (seconds < 90) return "just now";
+  const units: [number, string][] = [
+    [60, "minute"],
+    [3600, "hour"],
+    [86400, "day"],
+  ];
+  for (let i = units.length - 1; i >= 0; i--) {
+    const [size, name] = units[i];
+    const n = Math.floor(seconds / size);
+    if (n >= 1) return `${n} ${name}${n > 1 ? "s" : ""} ago`;
+  }
+  return "just now";
 }

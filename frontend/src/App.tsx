@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  formatAge,
   formatTime,
   getHealth,
   getJob,
+  listJobs,
+  posterUrl,
   streamJob,
   uploadVideo,
   type Health,
   type Job,
+  type JobSummary,
   type Stage,
 } from "./api";
 
@@ -22,14 +26,22 @@ export default function App() {
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
+  const [library, setLibrary] = useState<JobSummary[]>([]);
 
   const teardown = useRef<(() => void) | null>(null);
   const reelRef = useRef<HTMLVideoElement>(null);
 
+  const refreshLibrary = useCallback(() => {
+    listJobs()
+      .then((all) => setLibrary(all.filter((j) => j.stage === "done")))
+      .catch(() => setLibrary([]));
+  }, []);
+
   useEffect(() => {
     getHealth().then(setHealth).catch(() => setHealth(null));
+    refreshLibrary();
     return () => teardown.current?.();
-  }, []);
+  }, [refreshLibrary]);
 
   // Survive a page refresh mid-render: the job id lives in the URL hash, and
   // the SSE stream replays current state the moment we resubscribe.
@@ -61,6 +73,7 @@ export default function App() {
         setJob(finished);
         setPhase(finished.error ? "error" : "done");
         if (finished.error) setError(finished.error);
+        else refreshLibrary(); // the reel we just cut belongs in the library
       },
       (message) => {
         // Fall back to a plain fetch: the job may well have finished while
@@ -143,7 +156,10 @@ export default function App() {
       )}
 
       {phase === "idle" && (
-        <Dropzone dragging={dragging} setDragging={setDragging} onFile={handleFile} />
+        <>
+          <Dropzone dragging={dragging} setDragging={setDragging} onFile={handleFile} />
+          <Library reels={library} onOpen={attach} />
+        </>
       )}
 
       {phase === "working" && (
@@ -239,6 +255,59 @@ function Dropzone({
       <h2>Drop a video here</h2>
       <p>MP4, MOV, MKV or WebM. Keep it under two minutes for a fast first run.</p>
     </label>
+  );
+}
+
+function Library({
+  reels,
+  onOpen,
+}: {
+  reels: JobSummary[];
+  onOpen: (id: string) => void;
+}) {
+  // Nothing cut yet is the normal first-run state, not an error worth a card.
+  if (reels.length === 0) return null;
+
+  return (
+    <section className="card library">
+      <div className="library-head">
+        <h3>Your reels</h3>
+        <p className="hint">
+          {reels.length} saved on this machine. Click one to open it again.
+        </p>
+      </div>
+
+      <ul className="reel-grid">
+        {reels.map((reel) => (
+          <li key={reel.id}>
+            <button className="reel" onClick={() => onOpen(reel.id)}>
+              <span className="reel-thumb">
+                <img
+                  src={posterUrl(reel.id)}
+                  alt=""
+                  loading="lazy"
+                  // A reel whose poster cannot be made still deserves a card,
+                  // so fail to a blank tile rather than a broken-image icon.
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
+                  }}
+                />
+                <span className="reel-play">▶</span>
+              </span>
+              <span className="reel-body">
+                <span className="reel-title">{reel.title || "Untitled cut"}</span>
+                <span className="reel-file">{reel.filename}</span>
+                <span className="reel-meta">
+                  {reel.clip_count} clip{reel.clip_count === 1 ? "" : "s"}
+                  {reel.duration ? ` · from ${formatTime(reel.duration)}` : ""}
+                  {formatAge(reel.created_at) ? ` · ${formatAge(reel.created_at)}` : ""}
+                </span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
