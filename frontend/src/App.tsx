@@ -29,6 +29,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
   const [library, setLibrary] = useState<JobSummary[]>([]);
+  const [pendingDelete, setPendingDelete] = useState<JobSummary | null>(null);
 
   const teardown = useRef<(() => void) | null>(null);
   const reelRef = useRef<HTMLVideoElement>(null);
@@ -110,25 +111,23 @@ export default function App() {
     }
   }, []);
 
-  const handleDelete = useCallback(
-    async (reel: JobSummary) => {
-      // Irreversible and it removes files from disk, so make the user say yes
-      // and name what is about to go.
-      const name = reel.title || reel.filename;
-      if (!window.confirm(`Delete "${name}"?\n\nThe reel and its source upload are removed from disk. This cannot be undone.`)) {
-        return;
-      }
-      try {
-        await deleteJob(reel.id);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "delete failed");
-        setPhase("error");
-        return;
-      }
-      refreshLibrary();
-    },
-    [refreshLibrary],
-  );
+  // Deleting is irreversible and removes files from disk, so it goes through
+  // a confirmation step. The reel awaiting an answer lives here rather than
+  // inside the card, so only one dialog can ever be open.
+  const confirmDelete = useCallback(async () => {
+    const reel = pendingDelete;
+    setPendingDelete(null);
+    if (!reel) return;
+
+    try {
+      await deleteJob(reel.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "delete failed");
+      setPhase("error");
+      return;
+    }
+    refreshLibrary();
+  }, [pendingDelete, refreshLibrary]);
 
   function reset() {
     teardown.current?.();
@@ -180,7 +179,7 @@ export default function App() {
       {phase === "idle" && (
         <>
           <Dropzone dragging={dragging} setDragging={setDragging} onFile={handleFile} />
-          <Library reels={library} onOpen={attach} onDelete={handleDelete} />
+          <Library reels={library} onOpen={attach} onDelete={setPendingDelete} />
         </>
       )}
 
@@ -227,7 +226,79 @@ export default function App() {
       {phase === "done" && job && (
         <Result job={job} reelRef={reelRef} onSeek={seekTo} onReset={reset} />
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete this reel?"
+        confirmLabel="Delete reel"
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      >
+        <strong>{pendingDelete?.title || pendingDelete?.filename}</strong> and its
+        source upload will be removed from disk. This cannot be undone.
+      </ConfirmDialog>
     </div>
+  );
+}
+
+/**
+ * Confirmation built on the native <dialog>, which brings focus trapping,
+ * Esc-to-close and a real backdrop without a modal library. Cancel takes
+ * focus rather than the destructive action, so a stray Enter does nothing.
+ */
+function ConfirmDialog({
+  open,
+  title,
+  confirmLabel,
+  onConfirm,
+  onCancel,
+  children,
+}: {
+  open: boolean;
+  title: string;
+  confirmLabel: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  children: React.ReactNode;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // showModal() throws if called on an already-open dialog, so mirror the
+    // prop onto the element rather than assuming they agree.
+    if (open && !el.open) el.showModal();
+    if (!open && el.open) el.close();
+  }, [open]);
+
+  return (
+    <dialog
+      ref={ref}
+      className="modal"
+      onCancel={(e) => {
+        e.preventDefault(); // let React own the open state, not the browser
+        onCancel();
+      }}
+      // A click landing on the dialog itself is a click on the backdrop:
+      // anything inside the panel targets the panel or its children.
+      onClick={(e) => {
+        if (e.target === ref.current) onCancel();
+      }}
+    >
+      <div className="modal-panel">
+        <h2>{title}</h2>
+        <p>{children}</p>
+        <div className="modal-actions">
+          <button className="btn-quiet" onClick={onCancel} autoFocus>
+            Cancel
+          </button>
+          <button className="btn-danger" onClick={onConfirm}>
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </dialog>
   );
 }
 
