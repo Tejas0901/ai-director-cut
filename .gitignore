@@ -13,7 +13,6 @@ frontend/tsconfig.tsbuildinfo
 assets/music/*.mp3
 fixtures/*.mp4
 fixtures/_work/
-!fixtures/synthetic.mp4
 
 # Test footage dropped in the repo root. Never commit source video: it is
 # large, it is not ours to redistribute, and a clip of your own screen can
