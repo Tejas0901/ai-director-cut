@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   deleteJob,
   downloadUrl,
@@ -10,6 +10,7 @@ import {
   posterUrl,
   streamJob,
   uploadVideo,
+  type Clip,
   type Health,
   type Job,
   type JobSummary,
@@ -416,6 +417,74 @@ function Library({
   );
 }
 
+/**
+ * The whole source video as one bar, with the chosen moments marked on it.
+ *
+ * The clip list already says which timestamps were picked, but a list does not
+ * show what was LEFT OUT - and the gaps are the edit. Seeing four blocks on
+ * two minutes of footage is what makes the Director's job legible at a glance.
+ */
+function SourceTimeline({
+  clips,
+  duration,
+  reelLength,
+  playhead,
+  onPick,
+}: {
+  clips: Clip[];
+  duration: number;
+  reelLength: number;
+  playhead: number | null;
+  onPick: (index: number) => void;
+}) {
+  const pct = (seconds: number) => `${Math.max(0, Math.min(100, (seconds / duration) * 100))}%`;
+  const kept = duration > 0 ? Math.round((reelLength / duration) * 100) : 0;
+
+  return (
+    <section className="card timeline-card">
+      <div className="timeline-head">
+        <div>
+          <h3>What the Director kept</h3>
+          <p className="hint">
+            {clips.length} moment{clips.length === 1 ? "" : "s"} from{" "}
+            {formatTime(duration)} of footage &mdash; {kept}% of the original.
+            Click a block to play it.
+          </p>
+        </div>
+        <span className="pill">
+          <b>reel</b>
+          {formatTime(reelLength)}
+        </span>
+      </div>
+
+      <div className="timeline-track">
+        {clips.map((clip, i) => (
+          <button
+            key={i}
+            className="timeline-block"
+            style={{ left: pct(clip.start_time), width: pct(clip.end_time - clip.start_time) }}
+            onClick={() => onPick(i)}
+            title={`${clip.overlay_title || `Clip ${i + 1}`} — ${formatTime(clip.start_time)} to ${formatTime(clip.end_time)}`}
+            aria-label={`Play clip ${i + 1}, ${clip.overlay_title}`}
+          >
+            <span className="timeline-num">{i + 1}</span>
+          </button>
+        ))}
+
+        {playhead !== null && (
+          <span className="timeline-playhead" style={{ left: pct(playhead) }} aria-hidden />
+        )}
+      </div>
+
+      <div className="timeline-scale">
+        <span>0:00</span>
+        <span>{formatTime(duration / 2)}</span>
+        <span>{formatTime(duration)}</span>
+      </div>
+    </section>
+  );
+}
+
 function Result({
   job,
   reelRef,
@@ -428,15 +497,50 @@ function Result({
   onReset: () => void;
 }) {
   const plan = job.plan;
+  const clips = plan?.clips ?? [];
 
   // Clip start times are positions in the SOURCE video. Inside the reel they
   // sit end to end, so the reel offset is the sum of all preceding durations.
-  const reelOffsets: number[] = [];
-  let running = 0;
-  for (const clip of plan?.clips ?? []) {
-    reelOffsets.push(running);
-    running += clip.end_time - clip.start_time;
-  }
+  // Memoised because the playhead effect below depends on this array.
+  const reelOffsets = useMemo(() => {
+    const offsets: number[] = [];
+    let running = 0;
+    for (const clip of clips) {
+      offsets.push(running);
+      running += clip.end_time - clip.start_time;
+    }
+    return offsets;
+  }, [clips]);
+
+  const reelLength = reelOffsets.length
+    ? reelOffsets[reelOffsets.length - 1] +
+      (clips[clips.length - 1].end_time - clips[clips.length - 1].start_time)
+    : 0;
+
+  // Where in the ORIGINAL footage the currently-playing reel moment came from.
+  // Null whenever playback sits outside any clip, which should not happen but
+  // is cheaper to handle than to prove impossible.
+  const [sourceTime, setSourceTime] = useState<number | null>(null);
+
+  useEffect(() => {
+    const video = reelRef.current;
+    if (!video || clips.length === 0) return;
+
+    const onTime = () => {
+      const t = video.currentTime;
+      for (let i = clips.length - 1; i >= 0; i--) {
+        if (t >= reelOffsets[i] - 0.001) {
+          const into = t - reelOffsets[i];
+          setSourceTime(Math.min(clips[i].start_time + into, clips[i].end_time));
+          return;
+        }
+      }
+      setSourceTime(null);
+    };
+
+    video.addEventListener("timeupdate", onTime);
+    return () => video.removeEventListener("timeupdate", onTime);
+  }, [clips, reelOffsets, reelRef]);
 
   return (
     <>
@@ -455,6 +559,16 @@ function Result({
           <button onClick={onReset}>New video</button>
         </div>
       </section>
+
+      {plan && job.duration ? (
+        <SourceTimeline
+          clips={clips}
+          duration={job.duration}
+          reelLength={reelLength}
+          playhead={sourceTime}
+          onPick={(i) => onSeek(reelOffsets[i])}
+        />
+      ) : null}
 
       <section className="players">
         <figure>

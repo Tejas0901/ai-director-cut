@@ -407,6 +407,89 @@ body {
   50% { box-shadow: 0 0 0 8px transparent; }
 }
 
+/* --- source timeline --------------------------------------------------- */
+
+.timeline-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.timeline-head .hint { margin: 4px 0 0; max-width: 60ch; }
+
+/* The track is the whole source video; blocks are positioned as a percentage
+   of it, so the empty space between them is the footage that was cut. */
+.timeline-track {
+  position: relative;
+  height: 46px;
+  border-radius: 9px;
+  background:
+    repeating-linear-gradient(
+      90deg, #0f1219 0 6px, #11141c 6px 12px
+    );
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.timeline-block {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 14px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 0;
+  background: linear-gradient(180deg, var(--accent) 0%, #e04a26 100%);
+  color: #1a0a06;
+  box-shadow: inset 0 0 0 1px #0003;
+  transition: filter .15s, transform .15s;
+}
+
+.timeline-block:hover {
+  filter: brightness(1.15);
+  transform: scaleY(1.06);
+  z-index: 3;
+}
+
+.timeline-block:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: -3px;
+  z-index: 3;
+}
+
+.timeline-num {
+  font-size: 12px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+/* Marks where in the ORIGINAL footage the reel is playing from right now. */
+.timeline-playhead {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: #fff;
+  box-shadow: 0 0 8px #fff9;
+  pointer-events: none;
+  z-index: 4;
+  transition: left .2s linear;
+}
+
+.timeline-scale {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 7px;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* --- result ------------------------------------------------------------ */
 
 .result-head {
