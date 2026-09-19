@@ -40,7 +40,7 @@ FFPROBE = _env("FFPROBE_BIN") or shutil.which("ffprobe") or "ffprobe"
 # --- providers ------------------------------------------------------------
 LLM_PROVIDER = _env("LLM_PROVIDER", "gemini")  # gemini | groq | mock
 GEMINI_API_KEY = _env("GEMINI_API_KEY")
-GEMINI_MODEL = _env("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = _env("GEMINI_MODEL", "gemini-3.6-flash")
 GROQ_API_KEY = _env("GROQ_API_KEY")
 GROQ_MODEL = _env("GROQ_MODEL", "llama-3.3-70b-versatile")
 

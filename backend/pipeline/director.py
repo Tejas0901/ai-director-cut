@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 
 import httpx
 import numpy as np
@@ -125,15 +126,51 @@ def _build_prompts(timeline: Timeline) -> tuple[str, str]:
 
 # --------------------------------------------------------------------------
 
+# Codes worth a second attempt: the model is briefly overloaded or we are being
+# rate limited. Anything else (bad key, retired model, malformed request) will
+# fail identically no matter how many times we ask, so we surface it at once.
+RETRY_STATUS = {429, 500, 502, 503, 504}
+MAX_ATTEMPTS = 3
+
+
+def _post_json(url: str, headers: dict, payload: dict) -> dict:
+    """POST with backoff on transient failures.
+
+    The free Gemini tier returns 503 "high demand" fairly often - roughly two
+    in five cold calls during testing. Without a retry a single blip drops the
+    whole run to the heuristic director, which is a bad way to lose the most
+    interesting part of a demo.
+    """
+    last = ""
+    for attempt in range(MAX_ATTEMPTS):
+        try:
+            response = httpx.post(url, headers=headers, json=payload, timeout=120.0)
+            if response.status_code == 200:
+                return response.json()
+
+            last = f"HTTP {response.status_code}: {response.text[:200]}"
+            if response.status_code not in RETRY_STATUS:
+                raise RuntimeError(last)
+        except httpx.RequestError as exc:  # connection reset, timeout, DNS
+            last = f"{type(exc).__name__}: {exc}"
+
+        if attempt < MAX_ATTEMPTS - 1:
+            delay = 1.5 * (2 ** attempt)
+            print(f"[director] {last} - retrying in {delay:.1f}s "
+                  f"({attempt + 2}/{MAX_ATTEMPTS})")
+            time.sleep(delay)
+
+    raise RuntimeError(f"all {MAX_ATTEMPTS} attempts failed - {last}")
+
 
 def _gemini(system: str, user: str) -> EditPlan:
     if not GEMINI_API_KEY:
         raise RuntimeError("LLM_PROVIDER=gemini but GEMINI_API_KEY is not set")
 
-    response = httpx.post(
+    payload = _post_json(
         f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
-        headers={"x-goog-api-key": GEMINI_API_KEY, "Content-Type": "application/json"},
-        json={
+        {"x-goog-api-key": GEMINI_API_KEY, "Content-Type": "application/json"},
+        {
             "systemInstruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": [{"text": user}]}],
             "generationConfig": {
@@ -142,10 +179,8 @@ def _gemini(system: str, user: str) -> EditPlan:
                 "temperature": 0.7,
             },
         },
-        timeout=120.0,
     )
-    response.raise_for_status()
-    text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+    text = payload["candidates"][0]["content"]["parts"][0]["text"]
     return EditPlan.model_validate(json.loads(text))
 
 
@@ -153,10 +188,10 @@ def _groq(system: str, user: str) -> EditPlan:
     if not GROQ_API_KEY:
         raise RuntimeError("LLM_PROVIDER=groq but GROQ_API_KEY is not set")
 
-    response = httpx.post(
+    payload = _post_json(
         "https://api.groq.com/openai/v1/chat/completions",
-        headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
-        json={
+        {"Authorization": f"Bearer {GROQ_API_KEY}"},
+        {
             "model": GROQ_MODEL,
             "response_format": {"type": "json_object"},
             "temperature": 0.7,
@@ -166,10 +201,8 @@ def _groq(system: str, user: str) -> EditPlan:
                 {"role": "user", "content": user},
             ],
         },
-        timeout=120.0,
     )
-    response.raise_for_status()
-    text = response.json()["choices"][0]["message"]["content"]
+    text = payload["choices"][0]["message"]["content"]
     return EditPlan.model_validate(json.loads(text))
 
 

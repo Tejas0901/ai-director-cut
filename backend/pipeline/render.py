@@ -116,14 +116,24 @@ def cut_reel(plan: EditPlan, media: MediaInfo, out_path: Path) -> Path:
     return out_path
 
 
-def _escape_drawtext(text: str) -> str:
-    """drawtext treats ' : \\ % specially. Strip rather than escape.
+# A straight apostrophe closes drawtext's quoted string; the typographic one
+# is just another character to the parser. Swapping them keeps contractions
+# intact without a single backslash, and reads better on screen anyway.
+APOSTROPHE = "’"
+_DRAWTEXT_SAFE = " -?!,." + APOSTROPHE
 
-    Escaping these correctly through Python -> shell -> ffmpeg filter parsing
-    is three layers of quoting and a reliable source of silent failures. An
-    on-screen caption does not need punctuation badly enough to risk it.
+
+def _escape_drawtext(text: str) -> str:
+    """drawtext treats ' : \\ % specially. Substitute or strip, never escape.
+
+    Escaping these correctly through Python -> ffmpeg filter parsing is two
+    layers of quoting and a reliable source of silent failures. Captions come
+    from an LLM and are full of contractions ("Didn't", "Here's"), so the
+    apostrophe is worth translating rather than dropping - losing it turns
+    every caption into a visible typo. The rest goes.
     """
-    cleaned = "".join(c for c in (text or "") if c.isalnum() or c in " -?!,.")
+    text = (text or "").replace("'", APOSTROPHE).replace("`", APOSTROPHE)
+    cleaned = "".join(c for c in text if c.isalnum() or c in _DRAWTEXT_SAFE)
     return cleaned.strip()[:48]
 
 
