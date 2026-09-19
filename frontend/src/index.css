@@ -229,15 +229,25 @@ body {
   border: 1px solid #ffffff2e;
   font-size: 17px;
   line-height: 1;
-  opacity: 0;
-  transition: opacity .15s, background .15s;
+  /* Visible at rest on purpose. Hiding it until hover made a clickable
+     control invisible - undiscoverable to anyone who does not think to
+     hover, and on a touch screen an invisible tap target, since there is
+     no hover state there at all. Quiet rather than absent. */
+  opacity: .5;
+  transition: opacity .15s, background .15s, transform .15s;
 }
 
-/* Revealed on hover, but always reachable by keyboard. */
 .reel-cell:hover .reel-delete,
 .reel-delete:focus-visible { opacity: 1; }
 
-.reel-delete:hover { background: #d33a2c; filter: none; }
+.reel-delete:hover {
+  background: #d33a2c;
+  border-color: #d33a2c;
+  transform: scale(1.08);
+  filter: none;
+}
+
+.reel-delete:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .reel {
   width: 100%;
