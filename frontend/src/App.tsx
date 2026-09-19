@@ -152,17 +152,13 @@ export default function App() {
   return (
     <div className="shell">
       <header className="masthead">
-        <div>
-          <h1>Final Cut AI</h1>
-          <p className="tagline">Raw footage in. Highlight reel out. All on your laptop.</p>
-        </div>
-        {health && (
-          <div className="providers" title="Active providers">
-            <Pill k="LLM" v={health.llm} />
-            <Pill k="STT" v={health.stt} />
-            <Pill k="TTS" v={health.tts} />
+        <div className="brand">
+          <Logo />
+          <div>
+            <h1>Final Cut AI</h1>
+            <p className="tagline">Raw footage in. Highlight reel out. All on your laptop.</p>
           </div>
-        )}
+        </div>
       </header>
 
       {!health && (
@@ -180,6 +176,7 @@ export default function App() {
       {phase === "idle" && (
         <>
           <Dropzone dragging={dragging} setDragging={setDragging} onFile={handleFile} />
+          <Pipeline />
           <Library reels={library} onOpen={attach} onDelete={setPendingDelete} />
         </>
       )}
@@ -303,12 +300,47 @@ function ConfirmDialog({
   );
 }
 
-function Pill({ k, v }: { k: string; v: string }) {
+function Logo() {
   return (
-    <span className="pill">
-      <b>{k}</b>
-      {v}
-    </span>
+    <svg className="logo" viewBox="0 0 32 32" aria-hidden>
+      <defs>
+        <linearGradient id="fc-mark" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#ff7a45" />
+          <stop offset="1" stopColor="#e0421c" />
+        </linearGradient>
+      </defs>
+      <rect x="1" y="1" width="30" height="30" rx="9" fill="url(#fc-mark)" />
+      {/* Film perforations plus a play head - editing, not just playback. */}
+      <rect x="5.4" y="8" width="2.6" height="2.6" rx="0.8" fill="#ffffff8f" />
+      <rect x="5.4" y="14.7" width="2.6" height="2.6" rx="0.8" fill="#ffffff8f" />
+      <rect x="5.4" y="21.4" width="2.6" height="2.6" rx="0.8" fill="#ffffff8f" />
+      <path d="M13.2 10.2 L22.6 16 L13.2 21.8 Z" fill="#fff" />
+    </svg>
+  );
+}
+
+const STEPS = [
+  { n: 1, title: "Listens", tech: "Whisper", body: "Transcribes every word with timestamps." },
+  { n: 2, title: "Watches", tech: "OpenCV", body: "Tracks motion, scene cuts and faces." },
+  { n: 3, title: "Directs", tech: "Gemini", body: "Picks the moments and writes the narration." },
+  { n: 4, title: "Cuts", tech: "FFmpeg", body: "Renders the reel, scored and voiced." },
+];
+
+/** What happens after you drop a file. The pipeline is the product. */
+function Pipeline() {
+  return (
+    <section className="pipeline">
+      {STEPS.map((step) => (
+        <div className="step" key={step.n}>
+          <div className="step-top">
+            <span className="step-n">{step.n}</span>
+            <span className="step-title">{step.title}</span>
+            <span className="step-tech">{step.tech}</span>
+          </div>
+          <p>{step.body}</p>
+        </div>
+      ))}
+    </section>
   );
 }
 
@@ -345,9 +377,24 @@ function Dropzone({
           if (file) onFile(file);
         }}
       />
-      <div className="drop-icon">▶</div>
-      <h2>Drop a video here</h2>
-      <p>MP4, MOV, MKV or WebM. Keep it under two minutes for a fast first run.</p>
+      <div className="drop-icon" aria-hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+             strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 16V4" />
+          <path d="M7 9l5-5 5 5" />
+          <path d="M20 16v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3" />
+        </svg>
+      </div>
+      <h2>{dragging ? "Drop it" : "Drop a video here"}</h2>
+      <p>
+        or <span className="link-ish">browse your files</span>
+      </p>
+      <div className="formats">
+        {["MP4", "MOV", "MKV", "WEBM"].map((f) => (
+          <span key={f}>{f}</span>
+        ))}
+      </div>
+      <p className="drop-note">Under two minutes runs fastest.</p>
     </label>
   );
 }
