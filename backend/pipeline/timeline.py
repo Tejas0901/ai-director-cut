@@ -17,6 +17,12 @@ import numpy as np
 from ..config import BUCKET_SECONDS
 from ..schemas import MediaInfo, Timeline, TimelineBucket, Transcript, VisualBucket
 
+# Floor for the loudness normaliser, as linear RMS. -30 dBFS sits well below
+# normally-recorded speech (-20 to -26 dBFS) so real audio still normalises
+# against itself, but far above room tone, so silence can no longer be
+# stretched to fill the scale.
+MIN_LOUDNESS_CEILING = 0.0316  # 10 ** (-30 / 20)
+
 
 def build(media: MediaInfo, transcript: Transcript, visual: list[VisualBucket]) -> Timeline:
     count = max(1, int(np.ceil(media.duration / BUCKET_SECONDS)))
@@ -47,7 +53,21 @@ def _speech_at(transcript: Transcript, start: float, end: float) -> str:
 
 
 def _audio_rms(audio_path: str | None, count: int) -> list[float]:
-    """Per-bucket loudness, normalised against this clip's own 95th percentile."""
+    """Per-bucket loudness, normalised against this clip's own 95th percentile.
+
+    The relative scale is what makes loudness comparable across wildly
+    different recordings - but on its own it is a trap. A video whose audio is
+    nothing but room tone has a 95th percentile of room tone, so every bucket
+    divides out to ~1.0 and the Director is told the whole clip is deafening.
+    That is not hypothetical: real handheld footage measuring -40 dBFS scored
+    0.76-1.00 across the board, and the LLM dutifully justified its picks with
+    "peak audio volume" on a silent video.
+
+    Clamping the ceiling to a minimum absolute level fixes it. Clips with real
+    audio are unaffected (their percentile is well above the clamp), while
+    quiet ones are now scored against what loud actually means rather than
+    against their own noise floor.
+    """
     if not audio_path or not Path(audio_path).exists():
         return [0.0] * count
 
@@ -68,7 +88,7 @@ def _audio_rms(audio_path: str | None, count: int) -> list[float]:
         chunk = samples[i * per_bucket:(i + 1) * per_bucket]
         values.append(float(np.sqrt(np.mean(chunk ** 2))) if chunk.size else 0.0)
 
-    ceiling = float(np.percentile(values, 95)) or 1.0
+    ceiling = max(float(np.percentile(values, 95)), MIN_LOUDNESS_CEILING)
     return [min(1.0, v / ceiling) for v in values]
 
 
