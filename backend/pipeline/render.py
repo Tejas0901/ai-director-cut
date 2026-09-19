@@ -32,6 +32,11 @@ from .tts import duration_of, synthesize
 
 TITLE_HOLD_SECONDS = 3.0
 
+# How long the original audio takes to come back up after narration ends.
+# Long enough not to pop, short enough that the first words under it are not
+# lost - broadcast ducking sits in roughly this range.
+DUCK_FADE_SECONDS = 0.4
+
 
 def render(plan: EditPlan, media: MediaInfo, job_id: str,
            *, with_audio_mix: bool = True) -> Path:
@@ -142,6 +147,42 @@ def _escape_drawtext(text: str) -> str:
 # --------------------------------------------------------------------------
 
 
+def _duck_expression(intro_len: float, outro_start: float, total: float) -> str:
+    r"""Piecewise gain curve for the original audio under the narration.
+
+        DUCK ___                        ___ DUCK
+                \                      /
+                 \____________________/  1.0
+
+    Switching the gain instantly is what "ducking" must not sound like - the
+    source audio reappears with an audible pop the moment narration stops. So
+    each edge gets a short linear ramp instead.
+
+    Ramps are shrunk if the gap between intro and outro is too small to hold
+    two of them, which is the case on very short reels; they never overlap.
+    """
+    gap = max(0.0, outro_start - intro_len)
+    fade = min(DUCK_FADE_SECONDS, gap / 2.0) if gap > 0 else 0.0
+
+    if fade <= 0.01:
+        # No room to ramp - fall back to the hard gate rather than emit an
+        # expression that divides by zero.
+        return (f"if(lt(t,{intro_len:.3f}),{DUCK_VOLUME},"
+                f"if(lt(t,{outro_start:.3f}),1,{DUCK_VOLUME}))")
+
+    rise_end = intro_len + fade
+    fall_start = outro_start - fade
+    span = 1.0 - DUCK_VOLUME
+
+    return (
+        f"if(lt(t,{intro_len:.3f}),{DUCK_VOLUME},"
+        f"if(lt(t,{rise_end:.3f}),{DUCK_VOLUME}+{span:.3f}*(t-{intro_len:.3f})/{fade:.3f},"
+        f"if(lt(t,{fall_start:.3f}),1,"
+        f"if(lt(t,{outro_start:.3f}),1-{span:.3f}*(t-{fall_start:.3f})/{fade:.3f},"
+        f"{DUCK_VOLUME}))))"
+    )
+
+
 def mix_audio(video_path: Path, intro_path: Path, outro_path: Path,
               music_path: Path | None, out_path: Path) -> Path:
     """Overlay narration on head and tail, duck the bed, add music."""
@@ -155,11 +196,11 @@ def mix_audio(video_path: Path, intro_path: Path, outro_path: Path,
         inputs += ["-stream_loop", "-1", "-i", str(music_path)]
 
     # Duck the original audio only while narration is actually speaking.
-    # Two timeline-gated volume filters beat sidechaincompress here: one
-    # number to tune, and it behaves identically on every input.
+    # A gain expression beats sidechaincompress here: one number to tune, and
+    # it behaves identically on every input regardless of how hot the source
+    # was recorded.
     parts = [
-        f"[0:a]volume=enable='between(t,0,{intro_len:.2f})':volume={DUCK_VOLUME},"
-        f"volume=enable='between(t,{outro_start:.2f},{total:.2f})':volume={DUCK_VOLUME}[bed]",
+        f"[0:a]volume=eval=frame:volume='{_duck_expression(intro_len, outro_start, total)}'[bed]",
         f"[1:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
         f"adelay=0|0[intro]",
         f"[2:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
