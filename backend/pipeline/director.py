@@ -351,13 +351,108 @@ def _mock(timeline: Timeline) -> EditPlan:
         for i, (start, end) in enumerate(moments)
     ]
 
+    title, intro, outro = _heuristic_copy(timeline, clips)
     return EditPlan(
-        title="The Director's Cut",
+        title=title,
         music_mood=_heuristic_mood(timeline),
-        intro_narration="Here's everything worth watching, and nothing that isn't.",
-        outro_summary="That was the good part. You're welcome.",
+        intro_narration=intro,
+        outro_summary=outro,
         clips=clips,
     )
+
+
+# Title, intro and outro per dominant signal. The numbers are what make two
+# reels read differently; the phrasing only says which measurement won.
+_HEURISTIC_COPY: dict[str, tuple[str, str, str]] = {
+    "speech": (
+        "{Count} Lines That Land",
+        "{Count} moments out of {source}, picked where the talking gets loudest.",
+        "That was {kept} of the most spoken-over footage in the clip.",
+    ),
+    "cuts": (
+        "{Count} Hard Cuts",
+        "{Count} moments out of {source}, picked where the edit changes fastest.",
+        "That was {kept}, taken from the busiest stretches.",
+    ),
+    "motion": (
+        "{Count} Moments of Motion",
+        "{Count} moments out of {source}, picked on movement alone.",
+        "That was {kept} of the most active footage here.",
+    ),
+    "loudness": (
+        "{Count} Loudest Moments",
+        "{Count} moments out of {source}, picked where the sound peaks.",
+        "That was {kept} from the loudest parts of the clip.",
+    ),
+    "energy": (
+        "{Count} Standout Moments",
+        "{Count} moments out of {source}, picked on overall energy.",
+        "That was {kept} of the strongest footage in the clip.",
+    ),
+}
+
+_NUMBER_WORDS = ["no", "one", "two", "three", "four", "five", "six", "seven"]
+
+
+def _spell(n: int) -> str:
+    return _NUMBER_WORDS[n] if n < len(_NUMBER_WORDS) else str(n)
+
+
+def _say_duration(seconds: float) -> str:
+    """A length a narrator would actually say out loud."""
+    if seconds < 90:
+        return f"{max(1, round(seconds))} seconds"
+    minutes = seconds / 60.0
+    if minutes < 1.75:
+        return "a minute and a half"
+    return f"{round(minutes)} minutes"
+
+
+def _dominant_signal(timeline: Timeline) -> str:
+    """Which measurement actually drove the picks.
+
+    The heuristic cannot know what the footage is of - that is the LLM's job,
+    and by definition it is unavailable here. Naming the signal is the one
+    honest thing left to say, and unlike a fixed sentence it varies.
+    """
+    buckets = timeline.buckets
+    if not buckets:
+        return "energy"
+
+    talky = sum(1 for b in buckets if b.speech) / len(buckets)
+    cuts = sum(1 for b in buckets if b.scene_cut)
+    motion = float(np.mean([b.motion for b in buckets]))
+    loud = float(np.mean([b.audio_rms for b in buckets]))
+
+    if talky > 0.35 and timeline.transcript.full_text.strip():
+        return "speech"
+    if cuts >= max(4, len(buckets) // 40):
+        return "cuts"
+    if motion > 0.35:
+        return "motion"
+    if loud > 0.35:
+        return "loudness"
+    return "energy"
+
+
+def _heuristic_copy(timeline: Timeline, clips: list[Clip]) -> tuple[str, str, str]:
+    """Narration for a cut nobody wrote.
+
+    This replaces two fixed sentences that were identical on every reel the
+    app had ever produced - which is exactly how a fallback gives itself away
+    as one. Everything here is measured from this video, so two different
+    uploads read differently without anything being invented.
+    """
+    title_t, intro_t, outro_t = _HEURISTIC_COPY[_dominant_signal(timeline)]
+    fields = {
+        "count": _spell(len(clips)),
+        "Count": _spell(len(clips)).capitalize(),
+        "source": _say_duration(timeline.media.duration),
+        "kept": _say_duration(sum(c.duration for c in clips)),
+    }
+    return (title_t.format(**fields),
+            intro_t.format(**fields),
+            outro_t.format(**fields))
 
 
 def _heuristic_reason(timeline: Timeline, start: float, end: float) -> str:

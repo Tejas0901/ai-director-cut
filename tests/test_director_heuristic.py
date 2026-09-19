@@ -291,3 +291,120 @@ def test_a_very_long_raw_body_is_truncated():
     described = director._describe(Response(500, {}, text="x" * 900))
 
     assert len(described) < 300
+
+
+# --------------------------------------------------------------------------
+# heuristic narration
+#
+# The fallback used to return two fixed sentences and the title "The
+# Director's Cut" on every reel the app had ever produced, which is exactly
+# how a fallback gives itself away as one. It cannot know what the footage is
+# of - that is the LLM's job and it is unavailable here - so it reports what
+# it measured instead, and those measurements differ per video.
+# --------------------------------------------------------------------------
+
+
+def speechy(n: int = 80) -> list[TimelineBucket]:
+    return [TimelineBucket(t=round(i * 0.5, 2), audio_rms=0.7, motion=0.1,
+                           speech="talking here") for i in range(n)]
+
+
+def cutty(n: int = 80) -> list[TimelineBucket]:
+    return [TimelineBucket(t=round(i * 0.5, 2), audio_rms=0.2, motion=0.2,
+                           scene_cut=i % 3 == 0) for i in range(n)]
+
+
+def movey(n: int = 80) -> list[TimelineBucket]:
+    return [TimelineBucket(t=round(i * 0.5, 2), audio_rms=0.1, motion=0.9)
+            for i in range(n)]
+
+
+def test_two_different_videos_do_not_get_the_same_narration():
+    """The bug this replaces: identical copy on every reel."""
+    a = director._mock(timeline_of(speechy(80), duration=40.0,
+                                   transcript=Transcript(segments=[
+                                       TranscriptSegment(start=0, end=5, text="hello")])))
+    b = director._mock(timeline_of(movey(240), duration=120.0))
+
+    assert a.intro_narration != b.intro_narration
+    assert a.outro_summary != b.outro_summary
+    assert a.title != b.title
+
+
+def test_the_old_boilerplate_is_gone():
+    plan = director._mock(timeline_of(busy()))
+
+    assert plan.title != "The Director's Cut"
+    assert "nothing that isn't" not in plan.intro_narration
+    assert "You're welcome" not in plan.outro_summary
+
+
+def test_the_narration_reports_the_real_numbers():
+    tl = timeline_of(movey(240), duration=120.0)
+
+    plan = director._mock(tl)
+
+    assert "2 minutes" in plan.intro_narration, plan.intro_narration
+    assert director._spell(len(plan.clips)) in plan.intro_narration
+
+
+def test_a_video_of_a_different_length_reads_differently():
+    short = director._mock(timeline_of(movey(60), duration=30.0))
+    long = director._mock(timeline_of(movey(400), duration=200.0))
+
+    assert short.intro_narration != long.intro_narration
+
+
+@pytest.mark.parametrize("buckets,transcript,expected", [
+    (speechy(), Transcript(segments=[TranscriptSegment(start=0, end=5, text="hi")]), "speech"),
+    (cutty(), None, "cuts"),
+    (movey(), None, "motion"),
+    ([TimelineBucket(t=i * 0.5, audio_rms=0.8, motion=0.1) for i in range(80)], None, "loudness"),
+    ([TimelineBucket(t=i * 0.5, audio_rms=0.1, motion=0.1) for i in range(80)], None, "energy"),
+])
+def test_the_dominant_signal_is_identified(buckets, transcript, expected):
+    assert director._dominant_signal(timeline_of(buckets, transcript=transcript)) == expected
+
+
+def test_speech_is_not_claimed_when_there_is_no_transcript():
+    """Buckets can carry speech text while the transcript is empty only if
+    something upstream is wrong; either way, do not promise dialogue."""
+    assert director._dominant_signal(timeline_of(speechy())) != "speech"
+
+
+def test_an_empty_timeline_still_gets_narration():
+    plan = director._mock(timeline_of([], duration=8.0))
+
+    assert plan.title and plan.intro_narration and plan.outro_summary
+
+
+def test_the_narration_invents_no_subject():
+    """The heuristic is blind. It may describe measurements, never content."""
+    plan = director._mock(timeline_of(movey(240), duration=120.0))
+
+    words = (plan.title + " " + plan.intro_narration + " " + plan.outro_summary).lower()
+    for invented in ("chess", "squash", "family", "game", "match", "team", "player"):
+        assert invented not in words
+
+
+def test_the_intro_stays_within_the_narration_budget():
+    plan = director._mock(timeline_of(movey(240), duration=120.0))
+
+    assert len(plan.intro_narration.split()) <= 30
+    assert len(plan.outro_summary.split()) <= 20
+
+
+@pytest.mark.parametrize("seconds,expected", [
+    (5.0, "5 seconds"),
+    (45.4, "45 seconds"),
+    (89.0, "89 seconds"),
+    (95.0, "a minute and a half"),
+    (120.0, "2 minutes"),
+    (185.0, "3 minutes"),
+])
+def test_durations_are_spoken_the_way_a_person_would_say_them(seconds, expected):
+    assert director._say_duration(seconds) == expected
+
+
+def test_a_sub_second_clip_does_not_read_as_zero_seconds():
+    assert director._say_duration(0.2) == "1 seconds"
