@@ -117,16 +117,35 @@ useful as the "nothing works the way you expect" edge case.
 
 ## Assets
 
-Drop three loops into `assets/music/` named for the moods the Director can pick:
+The Director picks a `music_mood`, and the renderer looks for
+`assets/music/<mood>.mp3`. Generate all three — they are synthesised from
+scratch with numpy, so there is nothing to download and no licence to credit:
 
-```
-assets/music/energetic.mp3
-assets/music/chill.mp3
-assets/music/dramatic.mp3
+```bash
+uv run python -m assets.make_music          # energetic.mp3, chill.mp3, dramatic.mp3
 ```
 
-Free sources: [Pixabay Music](https://pixabay.com/music/), [Incompetech](https://incompetech.com/).
-If a file is missing the reel renders without a music bed rather than failing.
+| Mood | Tempo | Character |
+|---|---|---|
+| `energetic` | 124 bpm | A minor, eighth-note arpeggio, four-on-the-floor kick |
+| `chill` | 82 bpm | D major sevenths, soft pad, no drums |
+| `dramatic` | 68 bpm | D minor, low sustained pad, sparse movement |
+
+Each is a seamless loop — the release tail is folded back over the head — and
+gets bedded in under the narration at `MUSIC_VOLUME`. Substitute your own files
+of the same name if you prefer. If a file is missing the reel renders without
+music rather than failing.
+
+### Test fixtures
+
+```bash
+uv run python -m fixtures.make_fixtures     # synthetic.mp4 + talkie.mp4
+```
+
+`synthetic.mp4` is silent with hard scene cuts — the "no transcript" edge case.
+`talkie.mp4` carries real spoken narration over changing scenes, which is what
+exercises Whisper and sentence-boundary cutting. Both are generated, so neither
+ships as committed binary.
 
 ---
 
